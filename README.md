@@ -76,8 +76,11 @@ the application `backend` becomes a normal Spring property, so `gym.*` settings,
 all be managed there. The code is `ConfigServerEnvironmentPostProcessor`, registered in `META-INF/spring.factories`.
 
 Priority, highest first: command line, JVM system properties, environment variables, **config server**,
-`application.yml`. An environment variable such as `GYM_CORS_ORIGINS` therefore still overrides one setting locally.
-Changes made in the console apply the next time the backend starts.
+`application.yml`. Careful with the variables in the table above (`GYM_CORS_ORIGINS`, `GYM_TIMEZONE`, ...): they are
+only placeholders inside `application.yml`, so once the config server holds the same setting (for example
+`gym.cors-origins`) the config server's value wins. Change such a setting in the console, or start with
+`CONFIG_CLIENT_ENABLED=false`. A variable written in Spring's own form, such as `GYM_CORSORIGINS`, does beat the config
+server. Changes made in the console apply the next time the backend starts.
 
 | Variable                 | Default                 | What it does                                             |
 |--------------------------|-------------------------|----------------------------------------------------------|
