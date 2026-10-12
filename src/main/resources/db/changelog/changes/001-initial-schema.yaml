@@ -18,7 +18,7 @@ databaseChangeLog:
             columns:
               - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_plan } }
               - column: { name: name, type: VARCHAR(40), constraints: { nullable: false } }
-              - column: { name: price, type: DECIMAL(10,2), constraints: { nullable: false } }
+              - column: { name: price, type: "DECIMAL(10,2)", constraints: { nullable: false } }
               - column: { name: visits_per_month, type: INT, constraints: { nullable: false } }
         - sql:
             sql: ALTER TABLE plan ADD CONSTRAINT ck_plan_values CHECK (price >= 0 AND visits_per_month >= 0)
@@ -167,7 +167,7 @@ databaseChangeLog:
               - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_plan_history } }
               - column: { name: user_id, type: BIGINT, constraints: { nullable: false } }
               - column: { name: plan_name, type: VARCHAR(60), constraints: { nullable: false } }
-              - column: { name: price, type: DECIMAL(10,2), constraints: { nullable: false } }
+              - column: { name: price, type: "DECIMAL(10,2)", constraints: { nullable: false } }
               - column: { name: visits_per_month, type: INT, constraints: { nullable: false } }
               - column: { name: started_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
               - column: { name: ended_at, type: TIMESTAMP WITH TIME ZONE }
