@@ -1,0 +1,185 @@
+# Initial schema: one changeset per table so a failure is easy to locate.
+# Each changeset is skipped (MARK_RAN) when its table already exists, so a database that was created by the earlier
+# Hibernate "ddl-auto: update" setup is adopted instead of failing. Such a database is expected to match these tables.
+databaseChangeLog:
+
+  - changeSet:
+      id: 001-plan
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: plan
+      changes:
+        - createTable:
+            tableName: plan
+            remarks: A monthly subscription offered by the gym
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_plan } }
+              - column: { name: name, type: VARCHAR(40), constraints: { nullable: false } }
+              - column: { name: price, type: DECIMAL(10,2), constraints: { nullable: false } }
+              - column: { name: visits_per_month, type: INT, constraints: { nullable: false } }
+        - sql:
+            sql: ALTER TABLE plan ADD CONSTRAINT ck_plan_values CHECK (price >= 0 AND visits_per_month >= 0)
+
+  - changeSet:
+      id: 002-app-user
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: app_user
+      changes:
+        - createTable:
+            tableName: app_user
+            remarks: A login, either a member or the admin. plan_id is the plan currently held (at most one).
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_app_user } }
+              - column: { name: name, type: VARCHAR(60), constraints: { nullable: false } }
+              - column: { name: email, type: VARCHAR(120), constraints: { nullable: false } }
+              - column: { name: password_hash, type: VARCHAR(100), constraints: { nullable: false } }
+              - column: { name: role, type: VARCHAR(10), constraints: { nullable: false } }
+              - column: { name: plan_id, type: BIGINT }
+        - addUniqueConstraint:
+            tableName: app_user
+            columnNames: email
+            constraintName: uk_app_user_email
+        - addForeignKeyConstraint:
+            baseTableName: app_user
+            baseColumnNames: plan_id
+            referencedTableName: plan
+            referencedColumnNames: id
+            constraintName: fk_app_user_plan
+        - sql:
+            sql: ALTER TABLE app_user ADD CONSTRAINT ck_app_user_role CHECK (role IN ('MEMBER', 'ADMIN'))
+
+  - changeSet:
+      id: 003-gym-class
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: gym_class
+      changes:
+        - createTable:
+            tableName: gym_class
+            remarks: A class that repeats weekly; each session holds at most capacity people
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_gym_class } }
+              - column: { name: name, type: VARCHAR(40), constraints: { nullable: false } }
+              - column: { name: coach, type: VARCHAR(40) }
+              - column: { name: start_time, type: TIME, constraints: { nullable: false } }
+              - column: { name: duration_minutes, type: INT, constraints: { nullable: false } }
+              - column: { name: capacity, type: INT, constraints: { nullable: false } }
+        - sql:
+            sql: ALTER TABLE gym_class ADD CONSTRAINT ck_gym_class_values CHECK (capacity >= 1 AND duration_minutes >= 1)
+
+  - changeSet:
+      id: 004-gym-class-day
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: gym_class_day
+      changes:
+        - createTable:
+            tableName: gym_class_day
+            remarks: Weekdays on which a class runs (collection of the gym_class entity)
+            columns:
+              - column: { name: gym_class_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: day_of_week, type: VARCHAR(12), constraints: { nullable: false } }
+        - addPrimaryKey:
+            tableName: gym_class_day
+            columnNames: gym_class_id, day_of_week
+            constraintName: pk_gym_class_day
+        - addForeignKeyConstraint:
+            baseTableName: gym_class_day
+            baseColumnNames: gym_class_id
+            referencedTableName: gym_class
+            referencedColumnNames: id
+            constraintName: fk_gym_class_day_class
+            onDelete: CASCADE
+
+  - changeSet:
+      id: 005-booking
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: booking
+      changes:
+        - createTable:
+            tableName: booking
+            remarks: One member's seat in one session (a class on a specific date)
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_booking } }
+              - column: { name: user_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: gym_class_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: session_date, type: DATE, constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: booking
+            columnNames: user_id, gym_class_id, session_date
+            constraintName: uk_booking_member_session
+        - addForeignKeyConstraint:
+            baseTableName: booking
+            baseColumnNames: user_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            constraintName: fk_booking_user
+        - addForeignKeyConstraint:
+            baseTableName: booking
+            baseColumnNames: gym_class_id
+            referencedTableName: gym_class
+            referencedColumnNames: id
+            constraintName: fk_booking_class
+            onDelete: CASCADE
+        - createIndex:
+            tableName: booking
+            indexName: idx_booking_session
+            columns:
+              - column: { name: gym_class_id }
+              - column: { name: session_date }
+        - createIndex:
+            tableName: booking
+            indexName: idx_booking_user_date
+            columns:
+              - column: { name: user_id }
+              - column: { name: session_date }
+
+  - changeSet:
+      id: 006-plan-history
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: plan_history
+      changes:
+        - createTable:
+            tableName: plan_history
+            remarks: A period during which a member held a plan. Name, price and visits are copied so the history survives plan edits and deletion. ended_at is null while active.
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_plan_history } }
+              - column: { name: user_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: plan_name, type: VARCHAR(60), constraints: { nullable: false } }
+              - column: { name: price, type: DECIMAL(10,2), constraints: { nullable: false } }
+              - column: { name: visits_per_month, type: INT, constraints: { nullable: false } }
+              - column: { name: started_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: ended_at, type: TIMESTAMP WITH TIME ZONE }
+        - addForeignKeyConstraint:
+            baseTableName: plan_history
+            baseColumnNames: user_id
+            referencedTableName: app_user
+            referencedColumnNames: id
+            constraintName: fk_plan_history_user
+        - createIndex:
+            tableName: plan_history
+            indexName: idx_plan_history_user
+            columns:
+              - column: { name: user_id }
+              - column: { name: started_at }

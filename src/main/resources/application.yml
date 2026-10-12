@@ -1,0 +1,50 @@
+server:
+  port: ${PORT:8080}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: lax
+
+spring:
+  datasource:
+    # File database, kept in ./data next to where you start the app.
+    url: jdbc:h2:file:${GYM_DB_PATH:./data/foundry}
+    username: sa
+    password: ""
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Liquibase owns the schema; Hibernate only checks that the entities match it.
+      ddl-auto: validate
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled : false
+  h2:
+    console:
+      enabled: false
+
+gym:
+  # Time zone used to decide whether a class has already started. Empty = server default.
+  timezone: ${GYM_TIMEZONE:}
+  # Fills an empty database with example plans, classes and two members.
+  seed-demo-data: ${GYM_SEED_DEMO:true}
+  # Addresses the UI is served from, comma separated. Browsers may call this API only from these.
+  cors-origins: ${GYM_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  admin:
+    email: ${GYM_ADMIN_EMAIL:admin@foundry.gym}
+    password: ${GYM_ADMIN_PASSWORD:admin123}
+
+# Settings are fetched from the Foundry config server at start-up (see foundry-config-server).
+# Environment variables and the command line still override anything it sends.
+config:
+  client:
+    enabled: ${CONFIG_CLIENT_ENABLED:true}
+    url: ${CONFIG_SERVER_URL:http://localhost:8888}
+    app: ${CONFIG_APP_NAME:backend}
+    username: ${CONFIG_CLIENT_USER:backend}
+    password: ${CONFIG_CLIENT_PASSWORD:backend-secret}
+    # false: if the config server is down, start with the local settings below. true: refuse to start.
+    required: ${CONFIG_CLIENT_REQUIRED:false}
+    timeout-ms: 3000
