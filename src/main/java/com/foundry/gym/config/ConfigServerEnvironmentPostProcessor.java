@@ -7,7 +7,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -56,14 +55,14 @@ public class ConfigServerEnvironmentPostProcessor implements EnvironmentPostProc
         }
         String url = trimSlash(env.getProperty("config.client.url", "http://localhost:8888"));
         String app = env.getProperty("config.client.app", "backend");
-        String user = env.getProperty("config.client.username", "backend");
-        String password = env.getProperty("config.client.password", "");
+        String clientId = env.getProperty("config.client.client-id", "backend");
+        String clientSecret = env.getProperty("config.client.client-secret", "");
         boolean required = Boolean.parseBoolean(env.getProperty("config.client.required", "false"));
         long timeoutMs = Long.parseLong(env.getProperty("config.client.timeout-ms", "3000"));
         String profiles = String.join(",", env.getActiveProfiles());
 
         try {
-            Map<String, Object> props = fetch(url, app, profiles, user, password, timeoutMs);
+            Map<String, Object> props = fetch(url, app, profiles, clientId, clientSecret, timeoutMs);
             // After the environment variables: they and the command line still override the config server.
             if (env.getPropertySources().contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
                 env.getPropertySources().addAfter(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
@@ -82,25 +81,47 @@ public class ConfigServerEnvironmentPostProcessor implements EnvironmentPostProc
         }
     }
 
-    static Map<String, Object> fetch(String url, String app, String profiles, String user, String password, long timeoutMs)
-        throws Exception {
+    /**
+     * Two steps: trade the client id and secret for a short-lived token at {@code /auth/token}, then read the settings
+     * from {@code /config/{app}} with that token. Only an application the config server knows can get a token.
+     */
+    static Map<String, Object> fetch(String url, String app, String profiles, String clientId, String clientSecret,
+                                     long timeoutMs) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(timeoutMs)).build();
+        ObjectMapper mapper = new ObjectMapper();
+
+        String credentials = mapper.writeValueAsString(Map.of("clientId", clientId, "clientSecret", clientSecret));
+        HttpResponse<String> tokenResponse = client.send(HttpRequest.newBuilder(URI.create(url + "/auth/token"))
+            .timeout(Duration.ofMillis(timeoutMs))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(credentials, StandardCharsets.UTF_8)).build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (tokenResponse.statusCode() == 401) {
+            throw new IllegalStateException("the config server refused the client id and secret");
+        }
+        if (tokenResponse.statusCode() != 200) {
+            throw new IllegalStateException("the config server answered HTTP " + tokenResponse.statusCode() + " to the token request");
+        }
+        String token = mapper.readTree(tokenResponse.body()).path("accessToken").asText("");
+        if (token.isBlank()) {
+            throw new IllegalStateException("the config server did not return a token");
+        }
+
         String target = url + "/config/" + URLEncoder.encode(app, StandardCharsets.UTF_8)
             + (profiles.isBlank() ? "" : "?profiles=" + URLEncoder.encode(profiles, StandardCharsets.UTF_8));
-        String basic = Base64.getEncoder().encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8));
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(timeoutMs)).build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(target))
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(target))
             .timeout(Duration.ofMillis(timeoutMs))
             .header("Accept", "application/json")
-            .header("Authorization", "Basic " + basic)
-            .GET().build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (response.statusCode() == 401) {
-            throw new IllegalStateException("the config server refused the client username and password");
+            .header("Authorization", "Bearer " + token)
+            .GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() == 401 || response.statusCode() == 403) {
+            throw new IllegalStateException("the config server did not accept the token for '" + app + "' (HTTP " + response.statusCode() + ")");
         }
         if (response.statusCode() != 200) {
             throw new IllegalStateException("the config server answered HTTP " + response.statusCode());
         }
-        JsonNode properties = new ObjectMapper().readTree(response.body()).path("properties");
+        JsonNode properties = mapper.readTree(response.body()).path("properties");
         Map<String, Object> out = new LinkedHashMap<>();
         properties.fields().forEachRemaining(e -> out.put(e.getKey(), e.getValue().asText()));
         return out;

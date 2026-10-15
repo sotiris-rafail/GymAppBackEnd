@@ -77,6 +77,21 @@ public class AccountService {
         return Views.user(u);
     }
 
+    /** Needs the current password, so a borrowed or left-open session cannot take over the account. */
+    @Transactional
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        AppUser u = users.findById(userId)
+            .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Please log in to continue."));
+        if (!encoder.matches(currentPassword, u.getPasswordHash())) {
+            // 400, not 401: the person is still signed in, they just typed the wrong password
+            throw ApiException.badRequest("Your current password is not correct.");
+        }
+        if (currentPassword.equals(newPassword)) {
+            throw ApiException.badRequest("Choose a password that is different from the current one.");
+        }
+        u.setPasswordHash(encoder.encode(newPassword));
+    }
+
     @Transactional(readOnly = true)
     public UserView me(Long userId) {
         return users.findById(userId)

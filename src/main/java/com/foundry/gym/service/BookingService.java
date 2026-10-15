@@ -41,10 +41,12 @@ public class BookingService {
     private final GymClassRepository classes;
     private final AppUserRepository users;
     private final Clock clock;
+    private final ClosedDayService closedDays;
     private final int maxDaysAhead;
 
     public BookingService(BookingRepository bookings, GymClassRepository classes, AppUserRepository users, Clock clock,
-                          GymProperties props) {
+                          GymProperties props, ClosedDayService closedDays) {
+        this.closedDays = closedDays;
         this.maxDaysAhead = Math.max(1, props.bookingHorizonDays());
         this.bookings = bookings;
         this.classes = classes;
@@ -73,8 +75,12 @@ public class BookingService {
             .sorted(Comparator.comparing(GymClass::getStartTime).thenComparing(GymClass::getId))
             .toList();
 
+        java.util.Set<LocalDate> closed = closedDays.closedBetween(from, to);
         List<SessionView> out = new ArrayList<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (ClosedDayService.isSunday(d) || closed.contains(d)) {
+                continue; // closed: nothing to book
+            }
             for (GymClass c : all) {
                 if (!c.getDays().contains(d.getDayOfWeek())) {
                     continue;
@@ -110,6 +116,9 @@ public class BookingService {
         if (!c.getDays().contains(date.getDayOfWeek())) {
             throw ApiException.badRequest(c.getName() + " does not run on " + date.getDayOfWeek()
                 .getDisplayName(TextStyle.FULL, Locale.ENGLISH) + "s.");
+        }
+        if (closedDays.isClosed(date)) {
+            throw ApiException.conflict(ClosedDayService.isSunday(date) ? "The gym is closed on Sundays." : "The gym is closed on that day.");
         }
         LocalDate today = LocalDate.now(clock);
         if (date.isAfter(today.plusDays(maxDaysAhead))) {

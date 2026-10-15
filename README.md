@@ -68,10 +68,30 @@ Members can also create their own account on the login screen.
 
 Set `GYM_ADMIN_PASSWORD` before the first start of anything other than a demo.
 
+## Backend on your own computer, UI hosted elsewhere
+
+You can keep the backend on `localhost:8080` of your own machine and host only the UI somewhere else (for example an
+EC2 machine). The browser then calls your own localhost. Three things are needed:
+
+1. Allow the UI's address and turn off the config server's localhost value, e.g.
+
+       GYM_CORS_ORIGINS=http://<ui-host>:5173 CONFIG_CLIENT_ENABLED=false mvn spring-boot:run
+
+2. The login cookie must be allowed across the two addresses (they count as different sites):
+
+       SERVER_SERVLET_SESSION_COOKIE_SAMESITE=none SERVER_SERVLET_SESSION_COOKIE_SECURE=true
+
+   Browsers accept a `Secure` cookie from `http://localhost`.
+3. In the UI's `config.js`: `window.FOUNDRY_API_BASE = 'http://localhost:8080';`
+
+Newer browsers may block or ask permission when a public web page talks to `localhost`, and some block third-party
+cookies. If it does not work in your browser, run the UI on the same computer instead (`npm start`), or reach EC2 with an
+SSH tunnel.
+
 ## Settings from the config server
 
 At start-up the backend fetches its settings from the Foundry config server (`foundry-config-server`, default
-http://localhost:8888) with HTTP Basic, before Spring reads its own configuration. Every setting the server holds for
+http://localhost:8888) before Spring reads its own configuration. It first trades its client id and secret for a short-lived token (`POST /auth/token`) and then reads its settings with `Authorization: Bearer <token>`, so only an application the config server knows can fetch them. Every setting the server holds for
 the application `backend` becomes a normal Spring property, so `gym.*` settings, `spring.datasource.url` and so on can
 all be managed there. The code is `ConfigServerEnvironmentPostProcessor`, registered in `META-INF/spring.factories`.
 
@@ -86,7 +106,7 @@ server. Changes made in the console apply the next time the backend starts.
 |--------------------------|-------------------------|----------------------------------------------------------|
 | `CONFIG_CLIENT_ENABLED`  | true                    | Set to `false` to ignore the config server entirely      |
 | `CONFIG_SERVER_URL`      | http://localhost:8888   | Where the config server is                               |
-| `CONFIG_CLIENT_USER` / `CONFIG_CLIENT_PASSWORD` | backend / backend-secret | The client account configured on the server |
+| `CONFIG_CLIENT_ID` / `CONFIG_CLIENT_SECRET` | backend / backend-secret | The client id and secret configured on the config server (`cfg.clients`); they are only used to get a token |
 | `CONFIG_APP_NAME`        | backend                 | Which application's settings to fetch                    |
 | `CONFIG_CLIENT_REQUIRED` | false                   | `true`: refuse to start when the config server cannot be reached |
 
@@ -149,7 +169,7 @@ this feature get a period starting at first start for members who already have a
 `GymApiTests` covers the separate logins, role protection, admin validation, the capacity limit, the
 monthly visit limit with cancel, admin-only plan assignment, one member trying to cancel another member's booking, and the browser
 preflight from the UI's address. `ConfigServerClientTests` runs the start-up config client against a tiny fake
-config server (settings applied, Basic auth sent, environment variables still win, failure handling).
+config server (token requested first, settings read with the Bearer token, environment variables still win, failure handling).
 
 ## Before putting this on the internet
 
@@ -165,3 +185,30 @@ config server (settings applied, Basic auth sent, environment variables still wi
 This code was written and reviewed without being compiled or run, because the workspace it was written in
 could not download Maven dependencies. The UI was exercised in a browser against a stand-in server that follows
 the same API. Run `mvn test` first; if anything fails to compile, it is likely a small fix.
+
+## Home page items
+
+The public home page shows items the admin manages on the "Home page" admin page: photos, Instagram posts and promotions.
+`GET /api/promos` is open to visitors who are not logged in and returns active items only; `/api/admin/promos` (list,
+create, update, delete) is admin only. A photo is an http(s) address or a small uploaded image stored in the `promo`
+table (changeset `promo-001`). Type `CARD` is an announcement card with an extra `content` field (HTML text, up to 20000
+characters, changeset `promo-004`); the UI sanitises it before showing it. An item can have `hideOn` (a date: from that day on it is no longer returned by
+`GET /api/promos`, so an item created today with `hideOn` = today + 7 shows for exactly 7 days) and a tile size `colSpan`
+(1-4) and `rowSpan` (1-8), where 0 means automatic, and a background: `bgColor` (`#rrggbb`) and `bgImage` (address or uploaded
+image, changeset `promo-006`). Admins still see expired items in `/api/admin/promos`. Links must start with `http://` or `https://`.
+
+## Closed days
+
+Sundays are always closed: `/api/sessions` returns nothing for them and booking one answers 409. The admin can also close
+other dates: `POST /api/admin/closed-days` with `{"date":"2026-12-25","reason":"Christmas"}` (closing a Sunday is a 400),
+`DELETE /api/admin/closed-days/2026-12-25` to open it again. `GET /api/closed-days` (any signed-in user) lists the closed
+dates. Existing bookings on a date that is closed later are kept. Table `closed_day`, changesets `closed-day-001` and `closed-day-002-rename-day`. The date column is `closed_on` because `day` is a reserved word in H2.
+
+## Profile and password
+
+`PUT /api/auth/password` (any signed-in member or admin) with `{"currentPassword","newPassword"}` changes the caller's own
+password. The current password is required (400 "Your current password is not correct." otherwise, so the session stays
+signed in), the new one must be 6 to 72 characters and different from the old one. Nothing else about an account can be
+changed by its owner: name and email are fixed, and the plan is assigned by the admin. `GET /api/auth/me` returns the
+profile (id, name, email, role, planId).
+

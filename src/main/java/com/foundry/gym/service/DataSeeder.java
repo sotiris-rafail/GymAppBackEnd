@@ -85,7 +85,7 @@ public class DataSeeder implements CommandLineRunner {
             new GymClass("Spin", "Lena", LocalTime.of(18, 30), 45, 20,
                 Set.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)),
             new GymClass("Yoga Flow", "Priya", LocalTime.of(19, 30), 60, 14,
-                Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.SUNDAY))));
+                Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.SATURDAY))));
 
         AppUser alex = new AppUser("Alex Rivera", "alex@demo.gym", encoder.encode("member123"), Role.MEMBER);
         alex.setPlan(regular);
@@ -108,7 +108,7 @@ public class DataSeeder implements CommandLineRunner {
         for (int i = 0; i < 21 && alexBookings < 2; i++) {
             LocalDate d = now.toLocalDate().plusDays(i);
             for (GymClass c : created) {
-                if (!c.getDays().contains(d.getDayOfWeek()) || LocalDateTime.of(d, c.getStartTime()).isBefore(now)) {
+                if (d.getDayOfWeek() == DayOfWeek.SUNDAY || !c.getDays().contains(d.getDayOfWeek()) || LocalDateTime.of(d, c.getStartTime()).isBefore(now)) {
                     continue;
                 }
                 bookings.save(new Booking(alex, c, d));
@@ -129,7 +129,7 @@ public class DataSeeder implements CommandLineRunner {
             for (int day = 0; day < month.lengthOfMonth() && made < visits; day++) {
                 LocalDate d = month.plusDays(day);
                 for (GymClass c : created) {
-                    if (c.getDays().contains(d.getDayOfWeek()) && !bookings.existsByUserIdAndGymClassIdAndSessionDate(alex.getId(), c.getId(), d)) {
+                    if (d.getDayOfWeek() != DayOfWeek.SUNDAY && c.getDays().contains(d.getDayOfWeek()) && !bookings.existsByUserIdAndGymClassIdAndSessionDate(alex.getId(), c.getId(), d)) {
                         bookings.save(new Booking(alex, c, d));
                         made++;
                         break;

@@ -43,6 +43,9 @@ public class SecurityConfig {
         cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Content-Type", "Accept"));
         cors.setAllowCredentials(true);
+        // A page served from a public address (such as an EC2 machine) that calls this API on the visitor's own
+        // localhost is a "private network" request; browsers ask for this permission in the preflight.
+        cors.setAllowPrivateNetwork(true);
         cors.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", cors);
@@ -70,6 +73,7 @@ public class SecurityConfig {
                 .sessionFixation(f -> f.changeSessionId()))
             .authorizeHttpRequests(a -> a
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/logout").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/promos").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/me/**", "/api/bookings/**", "/api/sessions/**").hasRole("MEMBER")
                 .requestMatchers("/api/**").authenticated()

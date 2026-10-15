@@ -3,6 +3,7 @@ package com.foundry.gym.web;
 import java.util.List;
 
 import com.foundry.gym.dto.Dtos.LoginRequest;
+import com.foundry.gym.dto.Dtos.PasswordChange;
 import com.foundry.gym.dto.Dtos.RegisterRequest;
 import com.foundry.gym.dto.Dtos.UserView;
 import com.foundry.gym.service.AccountService;
@@ -19,6 +20,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -64,6 +66,13 @@ public class AuthController {
     @GetMapping("/me")
     public UserView me(@AuthenticationPrincipal AuthUser principal) {
         return accounts.me(principal.id());
+    }
+
+    /** Any signed-in person (member or admin) may change their own password, and nothing else about themselves. */
+    @PutMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@AuthenticationPrincipal AuthUser principal, @Valid @RequestBody PasswordChange body) {
+        accounts.changePassword(principal.id(), body.currentPassword(), body.newPassword());
     }
 
     private void signIn(UserView user, HttpServletRequest req, HttpServletResponse res) {

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.foundry.gym.config.ConfigServerEnvironmentPostProcessor;
@@ -24,12 +23,22 @@ class ConfigServerClientTests {
     private HttpServer server;
     private final AtomicReference<String> lastPath = new AtomicReference<>();
     private final AtomicReference<String> lastAuth = new AtomicReference<>();
+    private final AtomicReference<String> tokenRequest = new AtomicReference<>();
+    private volatile int tokenStatus = 200;
     private volatile int status = 200;
     private volatile String body = "{\"app\":\"backend\",\"profiles\":[],\"properties\":{\"gym.cors-origins\":\"http://x:1\",\"gym.booking-horizon-days\":\"30\",\"gym.timezone\":\"\"}}";
 
     @BeforeEach
     void start() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/auth/token", ex -> {
+            tokenRequest.set(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] out = "{\"accessToken\":\"tok-123\",\"tokenType\":\"Bearer\",\"expiresIn\":900}".getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(tokenStatus, out.length);
+            ex.getResponseBody().write(out);
+            ex.close();
+        });
         server.createContext("/config/", ex -> {
             lastPath.set(ex.getRequestURI().toString());
             lastAuth.set(ex.getRequestHeaders().getFirst("Authorization"));
@@ -55,8 +64,8 @@ class ConfigServerClientTests {
         StandardEnvironment env = new StandardEnvironment();
         MockPropertySource p = new MockPropertySource("test");
         p.setProperty("config.client.url", "http://127.0.0.1:" + server.getAddress().getPort());
-        p.setProperty("config.client.username", "backend");
-        p.setProperty("config.client.password", "pw");
+        p.setProperty("config.client.client-id", "backend");
+        p.setProperty("config.client.client-secret", "pw");
         for (int i = 0; i < pairs.length; i += 2) {
             p.setProperty(pairs[i], pairs[i + 1]);
         }
@@ -69,14 +78,15 @@ class ConfigServerClientTests {
     }
 
     @Test
-    void settings_from_the_server_become_properties_and_basic_auth_is_sent() {
+    void a_token_is_requested_first_and_sent_as_a_bearer_header() {
         StandardEnvironment env = env();
         env.setActiveProfiles("prod", "eu");
         run(env);
         assertEquals("30", env.getProperty("gym.booking-horizon-days"));
         assertEquals("http://x:1", env.getProperty("gym.cors-origins"));
         assertEquals("/config/backend?profiles=prod%2Ceu", lastPath.get());
-        assertEquals("Basic " + Base64.getEncoder().encodeToString("backend:pw".getBytes(StandardCharsets.UTF_8)), lastAuth.get());
+        assertEquals("{\"clientId\":\"backend\",\"clientSecret\":\"pw\"}", tokenRequest.get());
+        assertEquals("Bearer tok-123", lastAuth.get());
     }
 
     @Test
@@ -101,11 +111,19 @@ class ConfigServerClientTests {
 
     @Test
     void an_unreachable_or_refusing_server_is_survivable_unless_required() {
-        status = 401;
+        tokenStatus = 401; // the config server does not know this client
         StandardEnvironment lenient = env();
         run(lenient); // warns, does not throw
         assertNull(lenient.getProperty("gym.booking-horizon-days"));
 
+        assertThrows(IllegalStateException.class, () -> run(env("config.client.required", "true")));
+        assertNull(lastPath.get()); // without a token the settings were never even requested
+
+        tokenStatus = 200;
+        status = 403; // a token that may not read this application
+        StandardEnvironment refused = env();
+        run(refused);
+        assertNull(refused.getProperty("gym.booking-horizon-days"));
         assertThrows(IllegalStateException.class, () -> run(env("config.client.required", "true")));
 
         server.stop(0);

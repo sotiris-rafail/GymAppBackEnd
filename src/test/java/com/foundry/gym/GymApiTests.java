@@ -74,6 +74,11 @@ class GymApiTests {
 
     private static final String EVERY_DAY = "[1,2,3,4,5,6,7]";
 
+    /** Sundays are always closed, so tests that book use the next day that is not a Sunday. */
+    private static LocalDate nextOpen(LocalDate d) {
+        return d.getDayOfWeek() == java.time.DayOfWeek.SUNDAY ? d.plusDays(1) : d;
+    }
+
     @Test
     void logins_are_separate_and_protected() throws Exception {
         mvc.perform(get("/api/plans")).andExpect(status().isUnauthorized());
@@ -121,12 +126,75 @@ class GymApiTests {
     }
 
     @Test
+    void home_page_items_are_public_to_read_and_admin_only_to_change() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long shown = create(admin, "/api/admin/promos",
+            "{\"kind\":\"PROMO\",\"title\":\"Summer offer\",\"body\":\"First month half price\",\"image\":\"\",\"linkUrl\":\"https://example.com/offer\",\"sortOrder\":0,\"active\":true}");
+        create(admin, "/api/admin/promos",
+            "{\"kind\":\"INSTAGRAM\",\"title\":\"Hidden post\",\"sortOrder\":1,\"active\":false}");
+
+        // Visitors who are not logged in see active items only.
+        mvc.perform(get("/api/promos"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id==" + shown + ")].title").value("Summer offer"))
+            .andExpect(jsonPath("$[?(@.title=='Hidden post')]").isEmpty());
+
+        // Changing them needs the admin; the admin list also has hidden items.
+        mvc.perform(post("/api/admin/promos").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"x\"}")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/admin/promos").session(registerMember())).andExpect(status().isForbidden());
+        mvc.perform(get("/api/admin/promos").session(admin))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.title=='Hidden post')]").isNotEmpty());
+
+        // Links must be web addresses.
+        mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"Bad\",\"linkUrl\":\"javascript:alert(1)\"}"))
+            .andExpect(status().isBadRequest());
+
+        mvc.perform(delete("/api/admin/promos/" + shown).session(admin)).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void a_signed_in_person_may_change_only_their_password_and_must_know_the_current_one() throws Exception {
+        MockHttpSession member = registerMember(); // registerMember() uses the password pass1234
+        String email = json.readTree(mvc.perform(get("/api/auth/me").session(member)).andReturn().getResponse().getContentAsString())
+            .get("email").asText();
+
+        mvc.perform(put("/api/auth/password").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"currentPassword\":\"x\",\"newPassword\":\"abcdef\"}")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/auth/password").session(member).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"currentPassword\":\"wrong-one\",\"newPassword\":\"abcdef\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Your current password is not correct."));
+        mvc.perform(put("/api/auth/password").session(member).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"currentPassword\":\"pass1234\",\"newPassword\":\"abc\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Password must be 6 to 72 characters."));
+        mvc.perform(put("/api/auth/password").session(member).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"currentPassword\":\"pass1234\",\"newPassword\":\"pass1234\"}"))
+            .andExpect(status().isBadRequest());
+
+        mvc.perform(put("/api/auth/password").session(member).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"currentPassword\":\"pass1234\",\"newPassword\":\"brand-new-pass\"}"))
+            .andExpect(status().isNoContent());
+
+        // the new password logs in, the old one no longer does
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"email\":\"" + email + "\",\"password\":\"brand-new-pass\",\"role\":\"MEMBER\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"email\":\"" + email + "\",\"password\":\"pass1234\",\"role\":\"MEMBER\"}"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void class_capacity_is_enforced() throws Exception {
         MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
         long plan = create(admin, "/api/admin/plans", "{\"name\":\"Big\",\"price\":10,\"visitsPerMonth\":50}");
         long cls = create(admin, "/api/admin/classes",
             "{\"name\":\"Tiny\",\"coach\":\"X\",\"startTime\":\"23:30\",\"durationMinutes\":30,\"capacity\":1,\"days\":" + EVERY_DAY + "}");
-        LocalDate day = LocalDate.now().plusDays(1);
+        LocalDate day = nextOpen(LocalDate.now().plusDays(1));
 
         MockHttpSession a = registerMember();
         MockHttpSession b = registerMember();
@@ -162,9 +230,9 @@ class GymApiTests {
         long plan = create(admin, "/api/admin/plans", "{\"name\":\"One\",\"price\":5,\"visitsPerMonth\":1}");
         long cls = create(admin, "/api/admin/classes",
             "{\"name\":\"Daily\",\"coach\":\"\",\"startTime\":\"23:45\",\"durationMinutes\":30,\"capacity\":10,\"days\":" + EVERY_DAY + "}");
-        LocalDate day = LocalDate.now().plusDays(1);
+        LocalDate day = nextOpen(LocalDate.now().plusDays(1));
         // The day after, when it falls in the same month, so the one-visit limit applies to both.
-        LocalDate next = day.plusDays(1);
+        LocalDate next = nextOpen(day.plusDays(1));
 
         MockHttpSession m = registerMember();
         book(m, cls, day, 409); // no plan yet
@@ -233,7 +301,7 @@ class GymApiTests {
             .andExpect(jsonPath("$.months[0].visits").value(0));
 
         choosePlan(m, a);
-        book(m, cls, LocalDate.now().plusDays(1), 201);
+        book(m, cls, nextOpen(LocalDate.now().plusDays(1)), 201);
         choosePlan(m, a); // same plan again: no new period
         choosePlan(m, b);
 
@@ -246,7 +314,7 @@ class GymApiTests {
         org.junit.jupiter.api.Assertions.assertFalse(h.get("plans").get(1).get("to").isNull());
         JsonNode month = null;
         for (JsonNode n : h.get("months")) {
-            if (n.get("month").asText().equals(LocalDate.now().plusDays(1).toString().substring(0, 7))) month = n;
+            if (n.get("month").asText().equals(nextOpen(LocalDate.now().plusDays(1)).toString().substring(0, 7))) month = n;
         }
         org.junit.jupiter.api.Assertions.assertNotNull(month);
         org.junit.jupiter.api.Assertions.assertEquals(1, month.get("visits").asInt());
@@ -273,7 +341,7 @@ class GymApiTests {
         MockHttpSession b = registerMember();
         choosePlan(a, plan);
         choosePlan(b, plan);
-        LocalDate day = LocalDate.now().plusDays(1);
+        LocalDate day = nextOpen(LocalDate.now().plusDays(1));
         book(a, cls, day, 201);
         book(b, cls, day, 201);
 
@@ -302,7 +370,102 @@ class GymApiTests {
         MockHttpSession a = registerMember();
         MockHttpSession b = registerMember();
         choosePlan(a, plan);
-        long id = json.readTree(book(a, cls, LocalDate.now().plusDays(1), 201)).get("id").asLong();
+        long id = json.readTree(book(a, cls, nextOpen(LocalDate.now().plusDays(1)), 201)).get("id").asLong();
         mvc.perform(delete("/api/bookings/" + id).session(b)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void sundays_and_closed_days_cannot_be_booked_and_only_the_admin_manages_closed_days() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Closed\",\"price\":5,\"visitsPerMonth\":20}");
+        long cls = create(admin, "/api/admin/classes", "{\"name\":\"Daily\",\"coach\":\"X\",\"startTime\":\"23:30\",\"durationMinutes\":30,\"capacity\":5,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+
+        LocalDate sunday = LocalDate.now().plusDays(1);
+        while (sunday.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) sunday = sunday.plusDays(1);
+        if (sunday.isAfter(LocalDate.now().plusDays(28))) return; // never happens, keeps the horizon rule out of this test
+        String msg = book(m, cls, sunday, 409);
+        org.junit.jupiter.api.Assertions.assertTrue(msg.contains("Sunday"), msg);
+        org.junit.jupiter.api.Assertions.assertEquals(0, json.readTree(mvc.perform(get("/api/sessions").session(m)
+            .param("from", sunday.toString()).param("to", sunday.toString())).andReturn().getResponse().getContentAsString()).size());
+        mvc.perform(post("/api/admin/closed-days").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"date\":\"" + sunday + "\"}")).andExpect(status().isBadRequest());
+
+        LocalDate day = nextOpen(LocalDate.now().plusDays(2));
+        if (day.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) day = day.plusDays(1);
+        mvc.perform(post("/api/admin/closed-days").session(m).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"date\":\"" + day + "\"}")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/admin/closed-days").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"date\":\"" + day + "\",\"reason\":\"Holiday\"}")).andExpect(status().isCreated());
+        mvc.perform(get("/api/closed-days").session(m)).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.date=='" + day + "')].reason").value("Holiday"));
+        book(m, cls, day, 409);
+        org.junit.jupiter.api.Assertions.assertEquals(0, json.readTree(mvc.perform(get("/api/sessions").session(m)
+            .param("from", day.toString()).param("to", day.toString())).andReturn().getResponse().getContentAsString()).size());
+
+        mvc.perform(delete("/api/admin/closed-days/" + day).session(admin)).andExpect(status().isNoContent());
+        book(m, cls, day, 201);
+    }
+
+    @Test
+    void announcement_cards_keep_their_html_text_and_are_public() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long id = create(admin, "/api/admin/promos",
+            "{\"kind\":\"CARD\",\"title\":\"Summer news\",\"body\":\"Short\",\"content\":\"<p>Open <b>late</b></p>\"}");
+        mvc.perform(get("/api/promos")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].kind").value("CARD"))
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].content").value("<p>Open <b>late</b></p>"));
+        mvc.perform(put("/api/admin/promos/" + id).session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"CARD\",\"title\":\"Summer news\",\"content\":\"<p>Changed</p>\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.content").value("<p>Changed</p>"));
+    }
+
+    @Test
+    void email_preferences_default_to_off_and_are_saved_per_member() throws Exception {
+        MockHttpSession m = registerMember();
+        mvc.perform(get("/api/me/preferences").session(m)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.marketing").value(false)).andExpect(jsonPath("$.visitsReminder").value(false));
+        mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"marketing\":true,\"newPlans\":false,\"planEnding\":true,\"visitsReminder\":false}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.planEnding").value(true));
+        mvc.perform(get("/api/me/preferences").session(m)).andExpect(jsonPath("$.marketing").value(true))
+            .andExpect(jsonPath("$.newPlans").value(false));
+        mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON).content("{\"marketing\":true}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/me/preferences").session(registerMember())).andExpect(jsonPath("$.marketing").value(false));
+        mvc.perform(get("/api/me/preferences")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void home_items_with_a_hide_on_date_disappear_from_that_day_and_keep_their_size() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        LocalDate today = LocalDate.now();
+        long later = create(admin, "/api/admin/promos", "{\"kind\":\"PROMO\",\"title\":\"Until next week\",\"hideOn\":\"" + today.plusDays(7) + "\",\"colSpan\":2,\"rowSpan\":3}");
+        long gone = create(admin, "/api/admin/promos", "{\"kind\":\"PROMO\",\"title\":\"Ended today\",\"hideOn\":\"" + today + "\"}");
+        mvc.perform(get("/api/promos")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id==" + later + ")].colSpan").value(2))
+            .andExpect(jsonPath("$[?(@.id==" + later + ")].rowSpan").value(3))
+            .andExpect(jsonPath("$[?(@.id==" + later + ")].hideOn").value(today.plusDays(7).toString()))
+            .andExpect(jsonPath("$[?(@.id==" + gone + ")]").isEmpty());
+        mvc.perform(get("/api/admin/promos").session(admin)).andExpect(jsonPath("$[?(@.id==" + gone + ")]").isNotEmpty());
+        mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"Too wide\",\"colSpan\":5}")).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/admin/promos/" + gone).session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"Ended today\",\"hideOn\":\"" + today.plusDays(1) + "\"}")).andExpect(status().isOk());
+        mvc.perform(get("/api/promos")).andExpect(jsonPath("$[?(@.id==" + gone + ")]").isNotEmpty());
+    }
+
+    @Test
+    void home_items_can_have_a_background_colour_and_picture() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long id = create(admin, "/api/admin/promos", "{\"kind\":\"PROMO\",\"title\":\"Coloured\",\"bgColor\":\"#AA3355\",\"bgImage\":\"https://example.com/b.jpg\",\"rowSpan\":6}");
+        mvc.perform(get("/api/promos")).andExpect(jsonPath("$[?(@.id==" + id + ")].bgColor").value("#aa3355"))
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].bgImage").value("https://example.com/b.jpg"))
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].rowSpan").value(6));
+        mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"Bad\",\"bgColor\":\"red\"}")).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"PROMO\",\"title\":\"Bad\",\"bgImage\":\"javascript:alert(1)\"}")).andExpect(status().isBadRequest());
     }
 }

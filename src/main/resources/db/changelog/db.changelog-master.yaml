@@ -3,3 +3,9 @@
 databaseChangeLog:
   - include:
       file: db/changelog/changes/001-initial-schema.yaml
+  - include:
+      file: db/changelog/changes/002-promo.yaml
+  - include:
+      file: db/changelog/changes/003-closed-day.yaml
+  - include:
+      file: db/changelog/changes/004-preferences.yaml

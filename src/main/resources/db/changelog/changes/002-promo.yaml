@@ -1,0 +1,107 @@
+# Home page items (photos, Instagram posts, promotions) that the admin manages.
+databaseChangeLog:
+
+  - changeSet:
+      id: promo-001
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: promo
+      changes:
+        - createTable:
+            tableName: promo
+            remarks: An item on the public home page
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_promo } }
+              - column: { name: kind, type: VARCHAR(20), constraints: { nullable: false } }
+              - column: { name: title, type: VARCHAR(80), constraints: { nullable: false } }
+              - column: { name: body, type: VARCHAR(500) }
+              - column: { name: image, type: CLOB, remarks: "An http(s) address or an uploaded image as a data URL" }
+              - column: { name: link_url, type: VARCHAR(500) }
+              - column: { name: sort_order, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: active, type: BOOLEAN, defaultValueBoolean: true, constraints: { nullable: false } }
+
+  # Added after promo-001: each tile can be drawn with or without a border.
+  - changeSet:
+      id: promo-002-bordered
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: bordered
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: bordered, type: BOOLEAN, defaultValueBoolean: true, constraints: { nullable: false } }
+
+  # Added after promo-002: the title can be hidden on the tile.
+  - changeSet:
+      id: promo-003-title-visible
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: title_visible
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: title_visible, type: BOOLEAN, defaultValueBoolean: true, constraints: { nullable: false } }
+
+  # Added after promo-003: announcement cards have a full text (simple HTML) shown when the card is opened.
+  - changeSet:
+      id: promo-004-content
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: content
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: content, type: CLOB }
+
+  # Added after promo-004: an optional date from which the item is hidden, and the tile size in the grid.
+  - changeSet:
+      id: promo-005-hide-on-and-size
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: hide_on
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: hide_on, type: DATE }
+              - column: { name: col_span, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: row_span, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+
+  # Added after promo-005: a background colour and a background picture for the tile.
+  - changeSet:
+      id: promo-006-background
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: bg_color
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: bg_color, type: VARCHAR(7) }
+              - column: { name: bg_image, type: CLOB }

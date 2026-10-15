@@ -1,0 +1,27 @@
+# Email preferences of each member (all off by default).
+databaseChangeLog:
+
+  - changeSet:
+      id: preference-001
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: member_preference
+      changes:
+        - createTable:
+            tableName: member_preference
+            columns:
+              - column: { name: user_id, type: BIGINT, constraints: { primaryKey: true, primaryKeyName: pk_member_preference, nullable: false } }
+              - column: { name: marketing, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: new_plans, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: plan_ending, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: visits_reminder, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: member_preference
+            baseColumnNames: user_id
+            constraintName: fk_member_preference_user
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: CASCADE
