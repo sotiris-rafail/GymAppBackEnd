@@ -195,7 +195,7 @@ table (changeset `promo-001`). Type `CARD` is an announcement card with an extra
 characters, changeset `promo-004`); the UI sanitises it before showing it. An item can have `hideOn` (a date: from that day on it is no longer returned by
 `GET /api/promos`, so an item created today with `hideOn` = today + 7 shows for exactly 7 days) and a tile size `colSpan`
 (1-4) and `rowSpan` (1-8), where 0 means automatic, and a background: `bgColor` (`#rrggbb`) and `bgImage` (address or uploaded
-image, changeset `promo-006`). Admins still see expired items in `/api/admin/promos`. Links must start with `http://` or `https://`.
+image, changeset `promo-006`). Type `TILE` is a clickable tile: its background (`bgColor` and/or `bgImage`) with an optional title and text, and the whole tile opens `linkUrl`, which is required for tiles (400 otherwise). Admins still see expired items in `/api/admin/promos`. Links must start with `http://` or `https://`.
 
 ## Closed days
 

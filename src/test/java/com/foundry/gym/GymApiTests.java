@@ -422,6 +422,19 @@ class GymApiTests {
     }
 
     @Test
+    void link_tiles_need_a_link_and_keep_their_background() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"TILE\",\"title\":\"Shop\"}")).andExpect(status().isBadRequest());
+        long id = create(admin, "/api/admin/promos",
+            "{\"kind\":\"TILE\",\"title\":\"Shop\",\"linkUrl\":\"https://example.com/shop\",\"bgColor\":\"#112233\"}");
+        mvc.perform(get("/api/promos")).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].kind").value("TILE"))
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].linkUrl").value("https://example.com/shop"))
+            .andExpect(jsonPath("$[?(@.id==" + id + ")].bgColor").value("#112233"));
+    }
+
+    @Test
     void email_preferences_default_to_off_and_are_saved_per_member() throws Exception {
         MockHttpSession m = registerMember();
         mvc.perform(get("/api/me/preferences").session(m)).andExpect(status().isOk())

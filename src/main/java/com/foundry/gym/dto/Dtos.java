@@ -56,7 +56,7 @@ public final class Dtos {
 
     /** Photo: empty, an https address, or a small image as a data URL (the UI shrinks uploads before sending). */
     public record PromoRequest(
-        @NotNull(message = "Type is required.") @Pattern(regexp = "PHOTO|INSTAGRAM|PROMO|CARD", message = "Type must be PHOTO, INSTAGRAM, PROMO or CARD.") String kind,
+        @NotNull(message = "Type is required.") @Pattern(regexp = "PHOTO|INSTAGRAM|PROMO|CARD|TILE", message = "Type must be PHOTO, INSTAGRAM, PROMO, CARD or TILE.") String kind,
         @NotBlank(message = "Title is required.") @Size(max = 80, message = "Title can be at most 80 characters.") String title,
         @Size(max = 500, message = "Text can be at most 500 characters.") String body,
         @Size(max = 2000000, message = "The photo is too large.")

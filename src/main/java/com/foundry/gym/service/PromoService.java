@@ -39,8 +39,16 @@ public class PromoService {
         return promos.findAllByOrderBySortOrderAscIdAsc().stream().map(PromoService::view).toList();
     }
 
+    /** A tile exists to be clicked, so it must have a link. */
+    private static void requireTileLink(PromoRequest r) {
+        if ("TILE".equals(r.kind()) && clean(r.linkUrl()).isEmpty()) {
+            throw ApiException.badRequest("A tile needs a link.");
+        }
+    }
+
     @Transactional
     public PromoView create(PromoRequest r) {
+        requireTileLink(r);
         Promo p = new Promo(r.kind(), r.title().trim(), clean(r.body()), clean(r.image()), clean(r.linkUrl()),
             r.sortOrder() == null ? 0 : r.sortOrder(), r.active() == null || r.active());
         p.setBordered(r.bordered() == null || r.bordered());
@@ -56,6 +64,7 @@ public class PromoService {
 
     @Transactional
     public PromoView update(Long id, PromoRequest r) {
+        requireTileLink(r);
         Promo p = promos.findById(id).orElseThrow(() -> ApiException.notFound("Item"));
         p.setKind(r.kind());
         p.setTitle(r.title().trim());
