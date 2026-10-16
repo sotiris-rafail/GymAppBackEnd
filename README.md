@@ -117,7 +117,9 @@ The log says how many settings were loaded, never their values.
 
 * A class has a max-people limit. Every session (the class on one date) holds at most that many members.
 * A plan has a price and visits per calendar month. Booking uses one visit, cancelling a class that has not
-  started gives it back.
+  started gives it back. A plan can instead be **unlimited** (`unlimited: true`, changeset `unlimited-plan-001`): such a
+  member can book as many classes as they like (the usual capacity, closed days and booking window still apply).
+  `visitsPerMonth` is stored as 0 for an unlimited plan and is ignored in requests; for a limited plan it is required.
 * Only the admin assigns plans. A member sees their plan but cannot change it, and holds one plan (or none) at a time. Removing a plan leaves classes already booked in place.
 * Booking locks the member row and then the class row inside one transaction, so two requests at the same
   moment cannot take the last seat or exceed the monthly limit.
@@ -145,7 +147,7 @@ All paths return JSON. Errors look like `{"message":"That class is full."}`.
 | POST `/api/auth/logout`              | anyone   | Ends the session                                     |
 | GET `/api/auth/me`                   | signed in| The current person                                   |
 | GET `/api/plans`, `/api/classes`     | signed in| What exists                                          |
-| POST/PUT/DELETE `/api/admin/plans[/{id}]`   | admin | `{name, price, visitsPerMonth}`                |
+| POST/PUT/DELETE `/api/admin/plans[/{id}]`   | admin | `{name, price, visitsPerMonth, unlimited?}`    |
 | POST/PUT/DELETE `/api/admin/classes[/{id}]` | admin | `{name, coach, startTime, durationMinutes, capacity, days}`, days are 1 (Mon) to 7 (Sun) |
 | GET `/api/admin/members`             | admin    | Members with plan and visits used this month         |
 | GET `/api/admin/attendance?month=2026-10` | admin | Every class with who is booked on which date (default: current month) |

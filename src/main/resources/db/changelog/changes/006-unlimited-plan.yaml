@@ -1,0 +1,33 @@
+databaseChangeLog:
+  # Added after app-setting-001: a plan can be unlimited (no visit limit). visits_per_month is kept at 0 for such a plan,
+  # so the existing check (visits_per_month >= 0) still holds. Existing plans stay limited.
+  - changeSet:
+      id: unlimited-plan-001
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: plan
+                columnName: unlimited
+      changes:
+        - addColumn:
+            tableName: plan
+            columns:
+              - column: { name: unlimited, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+
+  # The history copies it too, so the past stays correct when a plan is later edited.
+  - changeSet:
+      id: unlimited-plan-002-history
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: plan_history
+                columnName: unlimited
+      changes:
+        - addColumn:
+            tableName: plan_history
+            columns:
+              - column: { name: unlimited, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }

@@ -51,9 +51,21 @@ public class CatalogService {
         return plans.findAll(Sort.by("id")).stream().map(Views::plan).toList();
     }
 
+    /** The visits to store: 0 for an unlimited plan, otherwise the number given (required). */
+    private static int visitsOf(PlanRequest r) {
+        if (Boolean.TRUE.equals(r.unlimited())) {
+            return 0;
+        }
+        if (r.visitsPerMonth() == null) {
+            throw ApiException.badRequest("Visits per month is required.");
+        }
+        return r.visitsPerMonth();
+    }
+
     @Transactional
     public PlanView createPlan(PlanRequest r) {
-        Plan p = new Plan(r.name().trim(), r.price().setScale(2, java.math.RoundingMode.HALF_UP), r.visitsPerMonth());
+        Plan p = new Plan(r.name().trim(), r.price().setScale(2, java.math.RoundingMode.HALF_UP), visitsOf(r));
+        p.setUnlimited(Boolean.TRUE.equals(r.unlimited()));
         return Views.plan(plans.save(p));
     }
 
@@ -62,7 +74,8 @@ public class CatalogService {
         Plan p = plans.findById(id).orElseThrow(() -> ApiException.notFound("Plan"));
         p.setName(r.name().trim());
         p.setPrice(r.price().setScale(2, java.math.RoundingMode.HALF_UP));
-        p.setVisitsPerMonth(r.visitsPerMonth());
+        p.setVisitsPerMonth(visitsOf(r));
+        p.setUnlimited(Boolean.TRUE.equals(r.unlimited()));
         return Views.plan(p);
     }
 

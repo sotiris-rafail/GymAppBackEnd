@@ -11,3 +11,5 @@ databaseChangeLog:
       file: db/changelog/changes/004-preferences.yaml
   - include:
       file: db/changelog/changes/005-app-setting.yaml
+  - include:
+      file: db/changelog/changes/006-unlimited-plan.yaml

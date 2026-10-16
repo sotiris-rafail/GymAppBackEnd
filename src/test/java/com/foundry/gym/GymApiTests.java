@@ -409,6 +409,30 @@ class GymApiTests {
     }
 
     @Test
+    void unlimited_plans_have_no_visit_limit_and_limited_plans_still_need_a_number() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        mvc.perform(post("/api/admin/plans").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"NoNumber\",\"price\":5}")).andExpect(status().isBadRequest());
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Anytime\",\"price\":60,\"unlimited\":true,\"visitsPerMonth\":7}");
+        mvc.perform(get("/api/plans").session(admin)).andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.id==" + plan + ")].unlimited").value(true))
+            .andExpect(jsonPath("$[?(@.id==" + plan + ")].visitsPerMonth").value(0));
+        long cls = create(admin, "/api/admin/classes",
+            "{\"name\":\"Daily\",\"coach\":\"\",\"startTime\":\"23:45\",\"durationMinutes\":30,\"capacity\":10,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        LocalDate day = nextOpen(LocalDate.now().plusDays(1));
+        for (int i = 0; i < 4; i++) {
+            book(m, cls, day, 201);
+            day = nextOpen(day.plusDays(1));
+        }
+        // Switching the plan to a limited one brings the limit back.
+        mvc.perform(put("/api/admin/plans/" + plan).session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"Anytime\",\"price\":60,\"unlimited\":false,\"visitsPerMonth\":1}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.unlimited").value(false)).andExpect(jsonPath("$.visitsPerMonth").value(1));
+    }
+
+    @Test
     void announcement_cards_keep_their_html_text_and_are_public() throws Exception {
         MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
         long id = create(admin, "/api/admin/promos",

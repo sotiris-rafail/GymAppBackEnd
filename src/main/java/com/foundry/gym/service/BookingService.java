@@ -143,7 +143,7 @@ public class BookingService {
         }
         YearMonth month = YearMonth.from(date);
         long used = bookings.countByUserIdAndSessionDateBetween(userId, month.atDay(1), month.atEndOfMonth());
-        if (used >= plan.getVisitsPerMonth()) {
+        if (!plan.isUnlimited() && used >= plan.getVisitsPerMonth()) {
             throw ApiException.conflict("No visits left in " + month.getMonth()
                 .getDisplayName(TextStyle.FULL, Locale.ENGLISH) + ". Your plan includes " + plan.getVisitsPerMonth() + ".");
         }

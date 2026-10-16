@@ -50,8 +50,10 @@ public final class Dtos {
         @NotBlank(message = "Plan name is required.") @Size(max = 40, message = "Plan name can be at most 40 characters.") String name,
         @NotNull(message = "Price is required.") @DecimalMin(value = "0.00", message = "Price cannot be negative.")
         @Digits(integer = 6, fraction = 2, message = "Price can have at most 2 decimals.") BigDecimal price,
-        @NotNull(message = "Visits per month is required.") @Min(value = 0, message = "Visits per month cannot be negative.")
-        @Max(value = 99, message = "Visits per month can be at most 99.") Integer visitsPerMonth) {
+        @Min(value = 0, message = "Visits per month cannot be negative.")
+        @Max(value = 99, message = "Visits per month can be at most 99.") Integer visitsPerMonth,
+        /** true = no visit limit (visitsPerMonth is then ignored). Otherwise visitsPerMonth is required. */
+        Boolean unlimited) {
     }
 
     /** Photo: empty, an https address, or a small image as a data URL (the UI shrinks uploads before sending). */
@@ -102,7 +104,7 @@ public final class Dtos {
     public record UserView(Long id, String name, String email, Role role, Long planId) {
     }
 
-    public record PlanView(Long id, String name, BigDecimal price, int visitsPerMonth) {
+    public record PlanView(Long id, String name, BigDecimal price, int visitsPerMonth, boolean unlimited) {
     }
 
     public record PromoView(Long id, String kind, String title, String body, String image, String linkUrl,
@@ -154,16 +156,16 @@ public final class Dtos {
     }
 
     public record MemberView(Long id, String name, String email, Long planId, String planName,
-                             Integer visitsPerMonth, int visitsUsedThisMonth) {
+                             Integer visitsPerMonth, boolean unlimited, int visitsUsedThisMonth) {
     }
 
     /** One period on one plan. "to" is null while the plan is still active. */
-    public record PlanPeriod(String planName, java.math.BigDecimal price, int visitsPerMonth,
+    public record PlanPeriod(String planName, java.math.BigDecimal price, int visitsPerMonth, boolean unlimited,
                              java.time.Instant from, java.time.Instant to) {
     }
 
     /** Visits used in one month ("2026-10"), and the plan the member had at the end of that month, if any. */
-    public record MonthUsage(String month, long visits, String planName, Integer visitsPerMonth) {
+    public record MonthUsage(String month, long visits, String planName, Integer visitsPerMonth, boolean unlimited) {
     }
 
     public record MemberHistory(Long id, String name, String email, List<PlanPeriod> plans, List<MonthUsage> months) {

@@ -6,6 +6,7 @@ CREATE TABLE plan (
     name             VARCHAR(40)    NOT NULL,
     price            DECIMAL(10,2)  NOT NULL,
     visits_per_month INT            NOT NULL,
+    unlimited        BOOLEAN        DEFAULT FALSE NOT NULL,   -- no visit limit; visits_per_month is then 0
     CONSTRAINT pk_plan PRIMARY KEY (id),
     CONSTRAINT ck_plan_values CHECK (price >= 0 AND visits_per_month >= 0)
 );
@@ -60,6 +61,7 @@ CREATE TABLE plan_history (
     plan_name        VARCHAR(60)              NOT NULL,   -- copied, survives plan edits and deletion
     price            DECIMAL(10,2)            NOT NULL,
     visits_per_month INT                      NOT NULL,
+    unlimited        BOOLEAN                  DEFAULT FALSE NOT NULL,
     started_at       TIMESTAMP WITH TIME ZONE NOT NULL,
     ended_at         TIMESTAMP WITH TIME ZONE,            -- NULL while active
     CONSTRAINT pk_plan_history PRIMARY KEY (id),

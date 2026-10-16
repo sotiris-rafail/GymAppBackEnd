@@ -32,7 +32,7 @@ public final class Views {
     }
 
     public static PlanView plan(Plan p) {
-        return new PlanView(p.getId(), p.getName(), p.getPrice(), p.getVisitsPerMonth());
+        return new PlanView(p.getId(), p.getName(), p.getPrice(), p.getVisitsPerMonth(), p.isUnlimited());
     }
 
     public static ClassView clazz(GymClass c) {

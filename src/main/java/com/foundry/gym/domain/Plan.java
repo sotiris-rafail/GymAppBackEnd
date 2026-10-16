@@ -27,6 +27,10 @@ public class Plan {
     @Column(name = "visits_per_month", nullable = false)
     private int visitsPerMonth;
 
+    /** No visit limit. visitsPerMonth is kept at 0 for such a plan and must not be read as "no visits". */
+    @Column(nullable = false)
+    private boolean unlimited;
+
     protected Plan() {
     }
 
@@ -41,6 +45,8 @@ public class Plan {
     public void setName(String name) { this.name = name; }
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
+    public boolean isUnlimited() { return unlimited; }
+    public void setUnlimited(boolean unlimited) { this.unlimited = unlimited; }
     public int getVisitsPerMonth() { return visitsPerMonth; }
     public void setVisitsPerMonth(int visitsPerMonth) { this.visitsPerMonth = visitsPerMonth; }
 }

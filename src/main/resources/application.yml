@@ -32,19 +32,19 @@ gym:
   # Addresses the UI is served from, comma separated. Browsers may call this API only from these.
   cors-origins: ${GYM_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   admin:
-    email: ${GYM_ADMIN_EMAIL}
-    password: ${GYM_ADMIN_PASSWORD}
+    email: ${GYM_ADMIN_EMAIL:admin@foundry.gym}
+    password: ${GYM_ADMIN_PASSWORD:admin123}
 
 # Settings are fetched from the Foundry config server at start-up (see foundry-config-server).
 # Environment variables and the command line still override anything it sends.
 config:
   client:
-    enabled: ${CONFIG_CLIENT_ENABLED}
-    url: ${CONFIG_SERVER_URL}
-    app: ${CONFIG_APP_NAME}
+    enabled: ${CONFIG_CLIENT_ENABLED:true}
+    url: ${CONFIG_SERVER_URL:http://localhost:8888}
+    app: ${CONFIG_APP_NAME:backend}
     # Trade these for a token at the config server's /auth/token, then read the settings with the token.
-    client-id: ${CONFIG_CLIENT_ID}
-    client-secret: ${CONFIG_CLIENT_SECRET}
+    client-id: ${CONFIG_CLIENT_ID:backend}
+    client-secret: ${CONFIG_CLIENT_SECRET:backend-secret}
     # false: if the config server is down, start with the local settings below. true: refuse to start.
-    required: ${CONFIG_CLIENT_REQUIRED}
+    required: ${CONFIG_CLIENT_REQUIRED:false}
     timeout-ms: 3000

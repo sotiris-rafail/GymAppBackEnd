@@ -35,6 +35,9 @@ public class PlanHistory {
     @Column(name = "visits_per_month", nullable = false)
     private int visitsPerMonth;
 
+    @Column(nullable = false)
+    private boolean unlimited;
+
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;
 
@@ -49,6 +52,7 @@ public class PlanHistory {
         this.planName = plan.getName();
         this.price = plan.getPrice();
         this.visitsPerMonth = plan.getVisitsPerMonth();
+        this.unlimited = plan.isUnlimited();
         this.startedAt = startedAt;
     }
 
@@ -57,6 +61,7 @@ public class PlanHistory {
     public String getPlanName() { return planName; }
     public BigDecimal getPrice() { return price; }
     public int getVisitsPerMonth() { return visitsPerMonth; }
+    public boolean isUnlimited() { return unlimited; }
     public Instant getStartedAt() { return startedAt; }
     public Instant getEndedAt() { return endedAt; }
     public void setEndedAt(Instant endedAt) { this.endedAt = endedAt; }

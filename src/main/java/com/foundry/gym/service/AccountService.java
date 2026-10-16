@@ -135,7 +135,7 @@ public class AccountService {
             .orElseThrow(() -> ApiException.notFound("Member"));
         List<PlanHistory> rows = history.findByUserIdOrderByStartedAtDescIdDesc(memberId);
         List<PlanPeriod> periods = rows.stream()
-            .map(h -> new PlanPeriod(h.getPlanName(), h.getPrice(), h.getVisitsPerMonth(), h.getStartedAt(), h.getEndedAt()))
+            .map(h -> new PlanPeriod(h.getPlanName(), h.getPrice(), h.getVisitsPerMonth(), h.isUnlimited(), h.getStartedAt(), h.getEndedAt()))
             .toList();
 
         ZoneId zone = clock.getZone();
@@ -156,7 +156,7 @@ public class AccountService {
                 .filter(h -> !h.getStartedAt().isAfter(at) && (h.getEndedAt() == null || h.getEndedAt().isAfter(at)))
                 .findFirst().orElse(null);
             months.add(new MonthUsage(e.getKey().toString(), e.getValue(),
-                p == null ? null : p.getPlanName(), p == null ? null : p.getVisitsPerMonth()));
+                p == null ? null : p.getPlanName(), p == null ? null : p.getVisitsPerMonth(), p != null && p.isUnlimited()));
         }
         return new MemberHistory(u.getId(), u.getName(), u.getEmail(), periods, months);
     }
@@ -166,6 +166,6 @@ public class AccountService {
         int used = (int) bookings.countByUserIdAndSessionDateBetween(u.getId(), month.atDay(1), month.atEndOfMonth());
         return new MemberView(u.getId(), u.getName(), u.getEmail(),
             p == null ? null : p.getId(), p == null ? null : p.getName(),
-            p == null ? null : p.getVisitsPerMonth(), used);
+            p == null ? null : p.getVisitsPerMonth(), p != null && p.isUnlimited(), used);
     }
 }
