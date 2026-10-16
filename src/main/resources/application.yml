@@ -46,5 +46,5 @@ config:
     client-id: ${CONFIG_CLIENT_ID}
     client-secret: ${CONFIG_CLIENT_SECRET}
     # false: if the config server is down, start with the local settings below. true: refuse to start.
-    required: ${CONFIG_CLIENT_REQUIRED:false}
+    required: ${CONFIG_CLIENT_REQUIRED}
     timeout-ms: 3000

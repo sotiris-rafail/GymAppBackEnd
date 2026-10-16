@@ -202,7 +202,17 @@ image, changeset `promo-006`). Admins still see expired items in `/api/admin/pro
 Sundays are always closed: `/api/sessions` returns nothing for them and booking one answers 409. The admin can also close
 other dates: `POST /api/admin/closed-days` with `{"date":"2026-12-25","reason":"Christmas"}` (closing a Sunday is a 400),
 `DELETE /api/admin/closed-days/2026-12-25` to open it again. `GET /api/closed-days` (any signed-in user) lists the closed
-dates. Existing bookings on a date that is closed later are kept. Table `closed_day`, changesets `closed-day-001` and `closed-day-002-rename-day`. The date column is `closed_on` because `day` is a reserved word in H2.
+dates. `PUT /api/admin/closed-periods/WEEK` or `/MONTH` with `{"closed":true}` closes bookings for the whole current week (Monday
+to Sunday) or calendar month, `{"closed":false}` opens it again, and `GET /api/admin/closed-periods` lists the closed
+weeks/months that have not ended (table `closed_period`). `GET /api/closed-days` lists every closed date, with `period`
+set to `WEEK` or `MONTH` for dates closed that way. Existing bookings on a date that is closed later are kept. Table `closed_day`, changesets `closed-day-001` and `closed-day-002-rename-day`. The date column is `closed_on` because `day` is a reserved word in H2.
+
+## Booking window
+
+`GET /api/booking-window` (any signed-in user) returns `{"mode":"ANY|WEEK|MONTH"}` and `PUT /api/admin/booking-window` with the
+same body changes it. `ANY` (the default) keeps the normal booking horizon, `WEEK` lets members book only inside the
+current week (Monday to Sunday) and `MONTH` only inside the current calendar month. Dates outside the window are not
+returned by `/api/sessions` and booking them answers 409. Stored in table `app_setting` (changeset `app-setting-001`).
 
 ## Profile and password
 

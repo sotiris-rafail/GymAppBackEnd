@@ -468,4 +468,70 @@ class GymApiTests {
         mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
             .content("{\"kind\":\"PROMO\",\"title\":\"Bad\",\"bgImage\":\"javascript:alert(1)\"}")).andExpect(status().isBadRequest());
     }
+
+    @Test
+    void admin_can_close_the_current_week_and_month_for_bookings() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Period\",\"price\":5,\"visitsPerMonth\":50}");
+        long cls = create(admin, "/api/admin/classes", "{\"name\":\"Daily\",\"coach\":\"X\",\"startTime\":\"23:30\",\"durationMinutes\":30,\"capacity\":5,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        LocalDate day = nextOpen(LocalDate.now().plusDays(1));
+        LocalDate monday = LocalDate.now().with(java.time.DayOfWeek.MONDAY);
+        boolean inWeek = !day.isBefore(monday) && !day.isAfter(monday.plusDays(6));
+
+        mvc.perform(put("/api/admin/closed-periods/MONTH").session(m).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":true}"))
+            .andExpect(status().isForbidden());
+        mvc.perform(put("/api/admin/closed-periods/YEAR").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":true}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(put("/api/admin/closed-periods/WEEK").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":true}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].kind").value("WEEK")).andExpect(jsonPath("$[0].from").value(monday.toString()));
+        mvc.perform(put("/api/admin/closed-periods/WEEK").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":true}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1)); // closing twice changes nothing
+        if (inWeek) {
+            book(m, cls, day, 409);
+            mvc.perform(get("/api/closed-days").session(m)).andExpect(jsonPath("$[?(@.date=='" + day + "')].period").value("WEEK"));
+        }
+        mvc.perform(put("/api/admin/closed-periods/WEEK").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":false}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        book(m, cls, day, 201);
+
+        LocalDate other = nextOpen(day.plusDays(1));
+        mvc.perform(put("/api/admin/closed-periods/MONTH").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":true}")).andExpect(status().isOk());
+        if (java.time.YearMonth.from(other).equals(java.time.YearMonth.now())) book(m, cls, other, 409);
+        mvc.perform(put("/api/admin/closed-periods/MONTH").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"closed\":false}")).andExpect(status().isOk());
+        book(m, cls, other, 201);
+    }
+
+    @Test
+    void booking_window_limits_members_to_the_current_week_or_month() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Window\",\"price\":5,\"visitsPerMonth\":50}");
+        long cls = create(admin, "/api/admin/classes", "{\"name\":\"Daily\",\"coach\":\"X\",\"startTime\":\"23:30\",\"durationMinutes\":30,\"capacity\":5,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        mvc.perform(get("/api/booking-window").session(m)).andExpect(jsonPath("$.mode").value("ANY"));
+        mvc.perform(put("/api/admin/booking-window").session(m).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"WEEK\"}"))
+            .andExpect(status().isForbidden());
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"YEAR\"}"))
+            .andExpect(status().isBadRequest());
+
+        LocalDate today = LocalDate.now();
+        LocalDate nextMonday = today.with(java.time.DayOfWeek.MONDAY).plusDays(7);
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"WEEK\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.mode").value("WEEK"));
+        book(m, cls, nextMonday, 409);
+        org.junit.jupiter.api.Assertions.assertEquals(0, json.readTree(mvc.perform(get("/api/sessions").session(m)
+            .param("from", nextMonday.toString()).param("to", nextMonday.toString())).andReturn().getResponse().getContentAsString()).size());
+
+        LocalDate firstOfNextMonth = today.withDayOfMonth(1).plusMonths(1);
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"MONTH\"}")).andExpect(status().isOk());
+        LocalDate other = nextOpen(firstOfNextMonth);
+        if (!other.isAfter(today.plusDays(28))) book(m, cls, other, 409);
+        LocalDate inMonth = nextOpen(today.plusDays(1));
+        if (java.time.YearMonth.from(inMonth).equals(java.time.YearMonth.from(today))) book(m, cls, inMonth, 201);
+
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"ANY\"}")).andExpect(status().isOk());
+        mvc.perform(get("/api/booking-window").session(m)).andExpect(jsonPath("$.mode").value("ANY"));
+    }
 }

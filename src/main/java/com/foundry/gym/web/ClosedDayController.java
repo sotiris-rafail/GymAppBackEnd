@@ -5,6 +5,8 @@ import java.util.List;
 
 import com.foundry.gym.dto.Dtos.ClosedDayRequest;
 import com.foundry.gym.dto.Dtos.ClosedDayView;
+import com.foundry.gym.dto.Dtos.ClosedPeriodRequest;
+import com.foundry.gym.dto.Dtos.ClosedPeriodView;
 import com.foundry.gym.service.ClosedDayService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -32,6 +35,17 @@ public class ClosedDayController {
     @GetMapping("/closed-days")
     public List<ClosedDayView> list() {
         return days.all();
+    }
+
+    @GetMapping("/admin/closed-periods")
+    public List<ClosedPeriodView> periods() {
+        return days.openPeriods();
+    }
+
+    /** kind is WEEK or MONTH; closed=true closes the current week/month for bookings, false opens it again. */
+    @PutMapping("/admin/closed-periods/{kind}")
+    public List<ClosedPeriodView> setPeriod(@PathVariable String kind, @Valid @RequestBody ClosedPeriodRequest body) {
+        return days.setPeriod(kind.toUpperCase(java.util.Locale.ROOT), body.closed());
     }
 
     @PostMapping("/admin/closed-days")

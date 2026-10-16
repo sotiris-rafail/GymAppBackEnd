@@ -1,0 +1,17 @@
+# Run-time settings the admin can change (for example the booking window).
+databaseChangeLog:
+
+  - changeSet:
+      id: app-setting-001
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: app_setting
+      changes:
+        - createTable:
+            tableName: app_setting
+            columns:
+              - column: { name: setting_key, type: VARCHAR(40), constraints: { primaryKey: true, primaryKeyName: pk_app_setting, nullable: false } }
+              - column: { name: setting_value, type: VARCHAR(200), constraints: { nullable: false } }

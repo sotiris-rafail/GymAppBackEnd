@@ -9,3 +9,5 @@ databaseChangeLog:
       file: db/changelog/changes/003-closed-day.yaml
   - include:
       file: db/changelog/changes/004-preferences.yaml
+  - include:
+      file: db/changelog/changes/005-app-setting.yaml

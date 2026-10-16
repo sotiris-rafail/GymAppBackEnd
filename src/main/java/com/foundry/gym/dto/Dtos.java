@@ -125,12 +125,24 @@ public final class Dtos {
         @NotNull(message = "Visits reminder is required.") Boolean visitsReminder) {
     }
 
+    /** mode is ANY, WEEK or MONTH. */
+    public record BookingWindowBody(
+        @NotNull(message = "Mode is required.") @Pattern(regexp = "ANY|WEEK|MONTH", message = "Mode must be ANY, WEEK or MONTH.") String mode) {
+    }
+
     public record ClosedDayRequest(
         @NotNull(message = "Date is required.") LocalDate date,
         @Size(max = 80, message = "Reason can be at most 80 characters.") String reason) {
     }
 
-    public record ClosedDayView(String date, String reason) {
+    /** period is "" for a single date the admin closed, or WEEK / MONTH when the date is closed as part of a closed week or month. */
+    public record ClosedDayView(String date, String reason, String period) {
+    }
+
+    public record ClosedPeriodRequest(@NotNull(message = "closed is required.") Boolean closed) {
+    }
+
+    public record ClosedPeriodView(String kind, String from, String to) {
     }
 
     public record SessionView(Long classId, String date, String name, String coach, String startTime,

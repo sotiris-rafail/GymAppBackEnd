@@ -42,11 +42,13 @@ public class BookingService {
     private final AppUserRepository users;
     private final Clock clock;
     private final ClosedDayService closedDays;
+    private final BookingWindowService window;
     private final int maxDaysAhead;
 
     public BookingService(BookingRepository bookings, GymClassRepository classes, AppUserRepository users, Clock clock,
-                          GymProperties props, ClosedDayService closedDays) {
+                          GymProperties props, ClosedDayService closedDays, BookingWindowService window) {
         this.closedDays = closedDays;
+        this.window = window;
         this.maxDaysAhead = Math.max(1, props.bookingHorizonDays());
         this.bookings = bookings;
         this.classes = classes;
@@ -75,10 +77,11 @@ public class BookingService {
             .sorted(Comparator.comparing(GymClass::getStartTime).thenComparing(GymClass::getId))
             .toList();
 
+        String windowMode = window.mode();
         java.util.Set<LocalDate> closed = closedDays.closedBetween(from, to);
         List<SessionView> out = new ArrayList<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
-            if (ClosedDayService.isSunday(d) || closed.contains(d)) {
+            if (ClosedDayService.isSunday(d) || closed.contains(d) || !window.allows(windowMode, d)) {
                 continue; // closed: nothing to book
             }
             for (GymClass c : all) {
@@ -119,6 +122,11 @@ public class BookingService {
         }
         if (closedDays.isClosed(date)) {
             throw ApiException.conflict(ClosedDayService.isSunday(date) ? "The gym is closed on Sundays." : "The gym is closed on that day.");
+        }
+        if (!window.allows(date)) {
+            throw ApiException.conflict("WEEK".equals(window.mode())
+                ? "Booking is only open for the current week."
+                : "Booking is only open for the current month.");
         }
         LocalDate today = LocalDate.now(clock);
         if (date.isAfter(today.plusDays(maxDaysAhead))) {
