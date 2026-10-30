@@ -18,7 +18,10 @@ public class ClosedDay {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "closed_on", nullable = false, unique = true)
+    @Column(name = "gym_id", nullable = false)
+    private Long gymId = Gym.FIRST_ID;
+
+    @Column(name = "closed_on", nullable = false)
     private LocalDate closedOn;
 
     @Column(length = 80)
@@ -27,12 +30,14 @@ public class ClosedDay {
     protected ClosedDay() {
     }
 
-    public ClosedDay(LocalDate day, String reason) {
+    public ClosedDay(Long gymId, LocalDate day, String reason) {
+        this.gymId = gymId;
         this.closedOn = day;
         this.reason = reason;
     }
 
     public Long getId() { return id; }
+    public Long getGymId() { return gymId; }
     public LocalDate getClosedOn() { return closedOn; }
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }

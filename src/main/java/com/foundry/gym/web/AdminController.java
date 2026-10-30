@@ -34,8 +34,11 @@ public class AdminController {
     private final AccountService accounts;
     private final BookingService bookings;
     private final java.time.Clock clock;
+    private final com.foundry.gym.service.GymService gyms;
 
-    public AdminController(CatalogService catalog, AccountService accounts, BookingService bookings, java.time.Clock clock) {
+    public AdminController(CatalogService catalog, AccountService accounts, BookingService bookings, java.time.Clock clock,
+                           com.foundry.gym.service.GymService gyms) {
+        this.gyms = gyms;
         this.catalog = catalog;
         this.accounts = accounts;
         this.bookings = bookings;
@@ -61,19 +64,20 @@ public class AdminController {
 
     @PostMapping("/classes")
     @ResponseStatus(HttpStatus.CREATED)
-    public ClassView createClass(@Valid @RequestBody ClassRequest body) {
-        return catalog.createClass(body);
+    public ClassView createClass(@Valid @RequestBody ClassRequest body, @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        return catalog.createClass(body, gyms.forAdmin(gymId));
     }
 
     @PutMapping("/classes/{id}")
-    public ClassView updateClass(@PathVariable Long id, @Valid @RequestBody ClassRequest body) {
-        return catalog.updateClass(id, body);
+    public ClassView updateClass(@PathVariable Long id, @Valid @RequestBody ClassRequest body,
+                                 @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        return catalog.updateClass(id, body, gyms.forAdmin(gymId));
     }
 
     @DeleteMapping("/classes/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteClass(@PathVariable Long id) {
-        catalog.deleteClass(id);
+    public void deleteClass(@PathVariable Long id, @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        catalog.deleteClass(id, gyms.forAdmin(gymId));
     }
 
     @GetMapping("/members")
@@ -87,6 +91,13 @@ public class AdminController {
         return accounts.assignPlan(id, body.planId());
     }
 
+    /** Sets (or clears) the gym a member sees first. */
+    @PutMapping("/members/{id}/home-gym")
+    public MemberView homeGym(@PathVariable Long id, @RequestBody com.foundry.gym.dto.Dtos.HomeGymBody body) {
+        gyms.setHomeGym(id, body.gymId());
+        return accounts.member(id);
+    }
+
     /** Plans the member has held and visits used per month. */
     @GetMapping("/members/{id}/history")
     public MemberHistory history(@PathVariable Long id) {
@@ -95,13 +106,14 @@ public class AdminController {
 
     /** Who is booked into each class in a month (yyyy-MM, default: the current month). */
     @GetMapping("/attendance")
-    public List<ClassAttendance> attendance(@org.springframework.web.bind.annotation.RequestParam(required = false) String month) {
+    public List<ClassAttendance> attendance(@org.springframework.web.bind.annotation.RequestParam(required = false) String month,
+                                            @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
         java.time.YearMonth m;
         try {
             m = month == null || month.isBlank() ? java.time.YearMonth.now(clock) : java.time.YearMonth.parse(month);
         } catch (java.time.format.DateTimeParseException e) {
             throw ApiException.badRequest("Month must look like 2026-10.");
         }
-        return bookings.attendance(m);
+        return bookings.attendance(m, gyms.forAdmin(gymId));
     }
 }

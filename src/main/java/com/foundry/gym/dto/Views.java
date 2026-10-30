@@ -28,22 +28,22 @@ public final class Views {
 
     public static UserView user(AppUser u) {
         Long planId = u.getPlan() == null ? null : u.getPlan().getId();
-        return new UserView(u.getId(), u.getName(), u.getEmail(), u.getRole(), planId);
+        return new UserView(u.getId(), u.getName(), u.getEmail(), u.getRole(), planId, u.getHomeGymId());
     }
 
     public static PlanView plan(Plan p) {
-        return new PlanView(p.getId(), p.getName(), p.getPrice(), p.getVisitsPerMonth(), p.isUnlimited());
+        return new PlanView(p.getId(), p.getName(), p.getPrice(), p.getVisitsPerMonth(), p.isUnlimited(), p.getGymId());
     }
 
     public static ClassView clazz(GymClass c) {
         List<Integer> days = c.getDays().stream().map(DayOfWeek::getValue).sorted().toList();
         return new ClassView(c.getId(), c.getName(), c.getCoach() == null ? "" : c.getCoach(),
-            time(c.getStartTime()), c.getDurationMinutes(), c.getCapacity(), days);
+            time(c.getStartTime()), c.getDurationMinutes(), c.getCapacity(), days, c.getGymId());
     }
 
-    public static BookingView booking(Booking b) {
+    public static BookingView booking(Booking b, String gymName, boolean defaultGym) {
         GymClass c = b.getGymClass();
         return new BookingView(b.getId(), c.getId(), c.getName(), c.getCoach() == null ? "" : c.getCoach(),
-            b.getSessionDate().toString(), time(c.getStartTime()), c.getDurationMinutes());
+            b.getSessionDate().toString(), time(c.getStartTime()), c.getDurationMinutes(), c.getGymId(), gymName, defaultGym);
     }
 }

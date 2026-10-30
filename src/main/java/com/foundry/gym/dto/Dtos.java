@@ -53,7 +53,9 @@ public final class Dtos {
         @Min(value = 0, message = "Visits per month cannot be negative.")
         @Max(value = 99, message = "Visits per month can be at most 99.") Integer visitsPerMonth,
         /** true = no visit limit (visitsPerMonth is then ignored). Otherwise visitsPerMonth is required. */
-        Boolean unlimited) {
+        Boolean unlimited,
+        /** The gym the plan is for; empty = valid at all gyms. */
+        Long gymId) {
     }
 
     /** Photo: empty, an https address, or a small image as a data URL (the UI shrinks uploads before sending). */
@@ -75,7 +77,10 @@ public final class Dtos {
         @Min(value = 0, message = "Height cannot be negative.") @Max(value = 8, message = "Height can be at most 8 rows.") Integer rowSpan,
         @Pattern(regexp = "^(#[0-9a-fA-F]{6})?$", message = "The background colour must look like #1a2b3c.") String bgColor,
         @Size(max = 2000000, message = "The background picture is too large.")
-        @Pattern(regexp = "^(https?://\\S+|data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+)?$", message = "The background picture must be an http(s) address or an uploaded image.") String bgImage) {
+        @Pattern(regexp = "^(https?://\\S+|data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+)?$", message = "The background picture must be an http(s) address or an uploaded image.") String bgImage,
+        Boolean marketing,
+        /** The gym the item is shown at; empty = all gyms. */
+        Long gymId) {
     }
 
     public record ClassRequest(
@@ -101,21 +106,22 @@ public final class Dtos {
 
     // ----- responses -----
 
-    public record UserView(Long id, String name, String email, Role role, Long planId) {
+    public record UserView(Long id, String name, String email, Role role, Long planId, Long homeGymId) {
     }
 
-    public record PlanView(Long id, String name, BigDecimal price, int visitsPerMonth, boolean unlimited) {
+    public record PlanView(Long id, String name, BigDecimal price, int visitsPerMonth, boolean unlimited, Long gymId) {
     }
 
     public record PromoView(Long id, String kind, String title, String body, String image, String linkUrl,
                             int sortOrder, boolean active, boolean bordered,
                             boolean titleVisible, String content,
-                            String hideOn, int colSpan, int rowSpan, String bgColor, String bgImage) {
+                            String hideOn, int colSpan, int rowSpan, String bgColor, String bgImage,
+                            boolean marketing, String marketingSentAt, int marketingRecipients, Long gymId) {
     }
 
     /** Days use ISO numbers: 1 = Monday ... 7 = Sunday. */
     public record ClassView(Long id, String name, String coach, String startTime, int durationMinutes,
-                            int capacity, java.util.List<Integer> days) {
+                            int capacity, java.util.List<Integer> days, Long gymId) {
     }
 
     /** One class on one date, with how full it is and whether the signed-in member holds a seat. */
@@ -128,6 +134,14 @@ public final class Dtos {
     }
 
     /** mode is ANY, WEEK or MONTH. */
+    /** Switches the admin can flip in the config server. */
+    public record FeaturesBody(boolean unlimitedPlans, boolean mail, boolean analytics, boolean home, boolean multiGym) {
+    }
+
+    /** The booking rules members see: the window, the horizon, and the last day they can book (yyyy-MM-dd). */
+    public record BookingWindowView(String mode, int horizonDays, String lastBookable) {
+    }
+
     public record BookingWindowBody(
         @NotNull(message = "Mode is required.") @Pattern(regexp = "ANY|WEEK|MONTH", message = "Mode must be ANY, WEEK or MONTH.") String mode) {
     }
@@ -152,11 +166,11 @@ public final class Dtos {
     }
 
     public record BookingView(Long id, Long classId, String className, String coach, String date,
-                              String startTime, int durationMinutes) {
+                              String startTime, int durationMinutes, Long gymId, String gymName, boolean defaultGym) {
     }
 
     public record MemberView(Long id, String name, String email, Long planId, String planName,
-                             Integer visitsPerMonth, boolean unlimited, int visitsUsedThisMonth) {
+                             Integer visitsPerMonth, boolean unlimited, int visitsUsedThisMonth, Long homeGymId) {
     }
 
     /** One period on one plan. "to" is null while the plan is still active. */
@@ -184,5 +198,57 @@ public final class Dtos {
     }
 
     public record ApiError(String message) {
+    }
+
+    /** What the admin writes on the Marketing page. The text is plain text; the link is optional. */
+    public record CampaignRequest(
+        @NotBlank(message = "Subject is required.") @Size(max = 150, message = "Subject can be at most 150 characters.") String subject,
+        @NotBlank(message = "Message is required.") @Size(max = 3000, message = "Message can be at most 3000 characters.") String body,
+        @Size(max = 500, message = "Link can be at most 500 characters.")
+        @Pattern(regexp = "^(https?://\\S+)?$", message = "The link must start with http:// or https://.") String linkUrl,
+        /** Who receives it: the members of this gym; empty = every member. */
+        Long gymId) {
+    }
+
+    /** status is DRAFT or SENT. The four counts say what became of the emails queued by "Send". */
+    public record CampaignView(Long id, String subject, String body, String linkUrl, String status, String createdAt,
+                               String sentAt, int recipients, long delivered, long waiting, long failed, long skipped, Long gymId) {
+    }
+
+    /** mailEnabled: the backend is set up to send email. optedIn: members who turned marketing emails on. */
+    public record MarketingStatus(boolean mailEnabled, long optedIn) {
+    }
+
+    // ---- gyms ----
+
+    public record GymRequest(
+        @NotBlank(message = "Gym name is required.") @Size(max = 60, message = "Gym name can be at most 60 characters.") String name,
+        @Size(max = 160, message = "Address can be at most 160 characters.") String address,
+        @Size(max = 40, message = "Time zone can be at most 40 characters.") String timeZone) {
+    }
+
+    public record GymStatusBody(@NotBlank(message = "Status is required.") String status) {
+    }
+
+    public record HomeGymBody(Long gymId) {
+    }
+
+    /** What the admin sees on the Gyms page. bookingsToCome counts bookings for classes that have not happened yet. */
+    public record GymView(Long id, String name, String address, String timeZone, String status, boolean isDefault,
+                          int classes, int members, long bookingsToCome) {
+    }
+
+    /** What a member can pick from. */
+    public record GymChoice(Long id, String name, String address, String status, boolean isDefault) {
+    }
+
+    /** Advice before switching multi-gym off. It never blocks the switch. */
+    public record SwitchOffCheck(Long defaultGymId, String defaultGymName, boolean multiGym, boolean tidy,
+                                 java.util.List<OtherGym> gyms, long bookingsToCome, long membersElsewhere,
+                                 long plansElsewhere, long itemsElsewhere) {
+    }
+
+    public record OtherGym(Long id, String name, String status, int classes, int members, long bookingsToCome,
+                           long plans, long items) {
     }
 }

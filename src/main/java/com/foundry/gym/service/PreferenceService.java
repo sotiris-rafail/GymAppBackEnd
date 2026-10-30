@@ -11,9 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class PreferenceService {
 
     private final MemberPreferenceRepository repo;
+    private final com.foundry.gym.mail.MailSettings mail;
 
-    public PreferenceService(MemberPreferenceRepository repo) {
+    public PreferenceService(MemberPreferenceRepository repo, com.foundry.gym.mail.MailSettings mail) {
         this.repo = repo;
+        this.mail = mail;
     }
 
     @Transactional(readOnly = true)
@@ -24,6 +26,12 @@ public class PreferenceService {
     @Transactional
     public PreferencesBody save(Long userId, PreferencesBody b) {
         MemberPreference p = repo.findById(userId).orElseGet(() -> new MemberPreference(userId));
+        // While the emails are switched off (gym.mail.enabled on the config server) nothing can be turned on, as nothing
+        // would be sent; turning an email off is always allowed.
+        if (!mail.enabled() && ((b.marketing() && !p.isMarketing()) || (b.newPlans() && !p.isNewPlans())
+            || (b.planEnding() && !p.isPlanEnding()) || (b.visitsReminder() && !p.isVisitsReminder()))) {
+            throw com.foundry.gym.web.ApiException.conflict("Emails are switched off at the moment, so they cannot be turned on. You can still turn them off.");
+        }
         p.setMarketing(b.marketing());
         p.setNewPlans(b.newPlans());
         p.setPlanEnding(b.planEnding());

@@ -1,0 +1,193 @@
+# More than one gym. The first gym (the default) is created here and receives every existing row, so an installation
+# with a single gym upgrades without any visible change. Whether several gyms are in use is a switch in the
+# configuration server (gyms.multi-enabled); these tables are the same either way.
+databaseChangeLog:
+
+  - changeSet:
+      id: gym-001-table
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: gym
+      changes:
+        - createTable:
+            tableName: gym
+            remarks: A place with classes. Exactly one gym is the default.
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_gym } }
+              - column: { name: name, type: VARCHAR(60), constraints: { nullable: false } }
+              - column: { name: address, type: VARCHAR(160) }
+              - column: { name: time_zone, type: VARCHAR(40) }
+              - column: { name: status, type: VARCHAR(10), defaultValue: ACTIVE, constraints: { nullable: false } }
+              - column: { name: is_default, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: sort_order, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, defaultValueComputed: CURRENT_TIMESTAMP, constraints: { nullable: false } }
+
+  # The first gym. It always gets id 1 on a new database, and the code relies on that only as a safe fallback.
+  - changeSet:
+      id: gym-002-default-gym
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - sqlCheck:
+            expectedResult: 0
+            sql: SELECT COUNT(*) FROM gym
+      changes:
+        - insert:
+            tableName: gym
+            columns:
+              - column: { name: name, value: Main gym }
+              - column: { name: status, value: ACTIVE }
+              - column: { name: is_default, valueBoolean: true }
+              - column: { name: sort_order, valueNumeric: 0 }
+
+  # --- rows that belong to exactly one gym ---
+  - changeSet:
+      id: gym-003-class
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: gym_class, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: gym_class
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - sql:
+            sql: UPDATE gym_class SET gym_id = (SELECT id FROM gym WHERE is_default = TRUE)
+        - addNotNullConstraint: { tableName: gym_class, columnName: gym_id, columnDataType: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: gym_class
+            baseColumnNames: gym_id
+            constraintName: fk_gym_class_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+        - createIndex: { tableName: gym_class, indexName: idx_gym_class_gym, columns: [ { column: { name: gym_id } } ] }
+
+  - changeSet:
+      id: gym-004-closed-day
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: closed_day, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: closed_day
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - sql:
+            sql: UPDATE closed_day SET gym_id = (SELECT id FROM gym WHERE is_default = TRUE)
+        - addNotNullConstraint: { tableName: closed_day, columnName: gym_id, columnDataType: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: closed_day
+            baseColumnNames: gym_id
+            constraintName: fk_closed_day_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+        # the same date may now be closed at one gym and open at another
+        - dropUniqueConstraint: { tableName: closed_day, constraintName: uq_closed_day }
+        - addUniqueConstraint: { tableName: closed_day, columnNames: "gym_id, closed_on", constraintName: uq_closed_day_gym }
+
+  - changeSet:
+      id: gym-005-closed-period
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: closed_period, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: closed_period
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - sql:
+            sql: UPDATE closed_period SET gym_id = (SELECT id FROM gym WHERE is_default = TRUE)
+        - addNotNullConstraint: { tableName: closed_period, columnName: gym_id, columnDataType: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: closed_period
+            baseColumnNames: gym_id
+            constraintName: fk_closed_period_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+
+  # --- rows that belong to one gym or, when gym_id is empty, to all gyms ---
+  - changeSet:
+      id: gym-006-plan
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: plan, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: plan
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: plan
+            baseColumnNames: gym_id
+            constraintName: fk_plan_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+
+  - changeSet:
+      id: gym-007-promo
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: promo, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: promo
+            baseColumnNames: gym_id
+            constraintName: fk_promo_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+
+  - changeSet:
+      id: gym-008-campaign
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: marketing_campaign, columnName: gym_id }
+      changes:
+        - addColumn:
+            tableName: marketing_campaign
+            columns:
+              - column: { name: gym_id, type: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: marketing_campaign
+            baseColumnNames: gym_id
+            constraintName: fk_campaign_gym
+            referencedTableName: gym
+            referencedColumnNames: id
+
+  # --- a member's home gym: what they see first; empty = the default gym ---
+  - changeSet:
+      id: gym-009-member-home
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: app_user, columnName: home_gym_id }
+      changes:
+        - addColumn:
+            tableName: app_user
+            columns:
+              - column: { name: home_gym_id, type: BIGINT }
+        - addForeignKeyConstraint:
+            baseTableName: app_user
+            baseColumnNames: home_gym_id
+            constraintName: fk_user_home_gym
+            referencedTableName: gym
+            referencedColumnNames: id

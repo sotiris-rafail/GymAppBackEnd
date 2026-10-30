@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 import com.foundry.gym.config.GymProperties;
+import com.foundry.gym.security.EmailCrypto;
 import com.foundry.gym.domain.AppUser;
 import com.foundry.gym.domain.Booking;
 import com.foundry.gym.domain.GymClass;
@@ -43,10 +44,12 @@ public class DataSeeder implements CommandLineRunner {
     private final PlanHistoryRepository history;
     private final PasswordEncoder encoder;
     private final Clock clock;
+    private final EmailCrypto emailCrypto;
 
     public DataSeeder(GymProperties props, AppUserRepository users, PlanRepository plans, GymClassRepository classes,
                       BookingRepository bookings, PlanHistoryRepository history, PasswordEncoder encoder,
-                      Clock clock) {
+                      Clock clock, EmailCrypto emailCrypto) {
+        this.emailCrypto = emailCrypto;
         this.history = history;
         this.props = props;
         this.users = users;
@@ -65,7 +68,7 @@ public class DataSeeder implements CommandLineRunner {
             return;
         }
         String adminEmail = AccountService.normalizeEmail(props.admin().email());
-        users.save(new AppUser("Admin", adminEmail, encoder.encode(props.admin().password()), Role.ADMIN));
+        users.save(new AppUser("Admin", adminEmail, emailCrypto.index(adminEmail), encoder.encode(props.admin().password()), Role.ADMIN));
         log.info("Created admin account {}", adminEmail);
 
         if (!props.seedDemoData()) {
@@ -87,9 +90,9 @@ public class DataSeeder implements CommandLineRunner {
             new GymClass("Yoga Flow", "Priya", LocalTime.of(19, 30), 60, 14,
                 Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.SATURDAY))));
 
-        AppUser alex = new AppUser("Alex Rivera", "alex@demo.gym", encoder.encode("member123"), Role.MEMBER);
+        AppUser alex = new AppUser("Alex Rivera", "alex@demo.gym", emailCrypto.index("alex@demo.gym"), encoder.encode("member123"), Role.MEMBER);
         alex.setPlan(regular);
-        AppUser sam = new AppUser("Sam Okafor", "sam@demo.gym", encoder.encode("member123"), Role.MEMBER);
+        AppUser sam = new AppUser("Sam Okafor", "sam@demo.gym", emailCrypto.index("sam@demo.gym"), encoder.encode("member123"), Role.MEMBER);
         sam.setPlan(starter);
         users.saveAll(List.of(alex, sam));
 

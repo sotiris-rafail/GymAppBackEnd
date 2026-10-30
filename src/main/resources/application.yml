@@ -25,6 +25,30 @@ spring:
       enabled: false
 
 gym:
+  # Two secrets that normally come from the config server (app "backend"); there is deliberately no default, the
+  # backend refuses to start without them. Make each with: openssl rand -base64 32
+  # Keep them safe and never change them once accounts exist: the email addresses could no longer be read and the
+  # passwords no longer match.
+  security:
+    password-salt: ${GYM_PASSWORD_SALT:}   # secret salt mixed into every password before BCrypt hashes it
+    email-key: ${GYM_EMAIL_KEY:}           # key that encrypts every email address
+  # Emails to members (Preferences toggles + the Marketing page). All of these are kept on the config server (app "backend",
+  # see the foundry-config-server README: gym.mail.* and spring.mail.*, the mail password as a secret); the values here are
+  # only defaults for a run without one. When enabled the backend refuses to start unless the mail server
+  # (spring.mail.host) and gym.mail.from are set. An environment variable still overrides the config server.
+  mail:
+    enabled: false
+    from: ""
+    app-url: ""
+    gym-name: Foundry
+    currency: "€"
+    scan-seconds: 900                       # how often the jobs look for emails to queue
+    send-seconds: 60                        # how often queued emails are sent
+    initial-delay-seconds: 30
+    reminder-hour: 9                        # the visits-left reminder goes out from this hour (gym time) on and after the 21st
+    news-window-days: 7                     # a new plan is announced for this many days
+    max-attempts: 5
+    batch-size: 50
   # Time zone used to decide whether a class has already started. Empty = server default.
   timezone: ${GYM_TIMEZONE:}
   # Fills an empty database with example plans, classes and two members.
@@ -32,8 +56,8 @@ gym:
   # Addresses the UI is served from, comma separated. Browsers may call this API only from these.
   cors-origins: ${GYM_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   admin:
-    email: ${GYM_ADMIN_EMAIL:admin@foundry.gym}
-    password: ${GYM_ADMIN_PASSWORD:admin123}
+    email: ${GYM_ADMIN_EMAIL}
+    password: ${GYM_ADMIN_PASSWORD}
 
 # Settings are fetched from the Foundry config server at start-up (see foundry-config-server).
 # Environment variables and the command line still override anything it sends.
@@ -41,10 +65,13 @@ config:
   client:
     enabled: ${CONFIG_CLIENT_ENABLED:true}
     url: ${CONFIG_SERVER_URL:http://localhost:8888}
-    app: ${CONFIG_APP_NAME:backend}
+    app: ${CONFIG_APP_NAME}
     # Trade these for a token at the config server's /auth/token, then read the settings with the token.
-    client-id: ${CONFIG_CLIENT_ID:backend}
-    client-secret: ${CONFIG_CLIENT_SECRET:backend-secret}
-    # false: if the config server is down, start with the local settings below. true: refuse to start.
-    required: ${CONFIG_CLIENT_REQUIRED:false}
+    client-id: ${CONFIG_CLIENT_ID}
+    client-secret: ${CONFIG_CLIENT_SECRET}
+    # true (default): if the config server cannot be reached, refuse to start. false: start with the local settings,
+    # in which case GYM_PASSWORD_SALT and GYM_EMAIL_KEY must be set as environment variables.
+    required: ${CONFIG_CLIENT_REQUIRED:true}
     timeout-ms: 3000
+    # How often the running backend asks the config server again for switches such as plans.unlimited-enabled (seconds).
+    refresh-seconds: ${CONFIG_REFRESH_SECONDS:300}

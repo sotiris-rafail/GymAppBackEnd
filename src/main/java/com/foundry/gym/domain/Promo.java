@@ -79,6 +79,22 @@ public class Promo {
     @Column(name = "bg_image")
     private String bgImage;
 
+    /** The admin ticked "send as a marketing email": members who turned marketing emails on get this item by email. */
+    /** The gym this item is shown at; empty = all gyms. */
+    @Column(name = "gym_id")
+    private Long gymId;
+
+    @Column(nullable = false)
+    private boolean marketing;
+
+    /** When the emails for this item were queued (null = not yet). After that the tick can no longer be changed. */
+    @Column(name = "marketing_queued_at")
+    private java.time.Instant marketingQueuedAt;
+
+    /** How many members the emails were queued for. */
+    @Column(name = "marketing_recipients", nullable = false)
+    private int marketingRecipients;
+
     protected Promo() {
     }
 
@@ -92,6 +108,13 @@ public class Promo {
         this.active = active;
     }
 
+    public boolean isMarketing() { return marketing; }
+    public void setMarketing(boolean marketing) { this.marketing = marketing; }
+    public java.time.Instant getMarketingQueuedAt() { return marketingQueuedAt; }
+    public int getMarketingRecipients() { return marketingRecipients; }
+    public void markMarketingQueued(java.time.Instant at, int recipients) { this.marketingQueuedAt = at; this.marketingRecipients = recipients; }
+    public Long getGymId() { return gymId; }
+    public void setGymId(Long gymId) { this.gymId = gymId; }
     public Long getId() { return id; }
     public String getKind() { return kind; }
     public void setKind(String kind) { this.kind = kind; }

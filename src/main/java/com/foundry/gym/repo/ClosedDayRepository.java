@@ -9,11 +9,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ClosedDayRepository extends JpaRepository<ClosedDay, Long> {
 
-    Optional<ClosedDay> findByClosedOn(LocalDate day);
+    Optional<ClosedDay> findByGymIdAndClosedOn(Long gymId, LocalDate day);
 
-    boolean existsByClosedOn(LocalDate day);
+    boolean existsByGymIdAndClosedOn(Long gymId, LocalDate day);
 
-    List<ClosedDay> findAllByOrderByClosedOnAsc();
+    List<ClosedDay> findByGymIdOrderByClosedOnAsc(Long gymId);
 
-    List<ClosedDay> findByClosedOnBetween(LocalDate from, LocalDate to);
+    List<ClosedDay> findByGymIdAndClosedOnBetween(Long gymId, LocalDate from, LocalDate to);
 }

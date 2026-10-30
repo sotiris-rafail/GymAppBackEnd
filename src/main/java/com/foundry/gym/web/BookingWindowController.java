@@ -1,6 +1,7 @@
 package com.foundry.gym.web;
 
 import com.foundry.gym.dto.Dtos.BookingWindowBody;
+import com.foundry.gym.dto.Dtos.BookingWindowView;
 import com.foundry.gym.service.BookingWindowService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,12 +22,16 @@ public class BookingWindowController {
     }
 
     @GetMapping("/booking-window")
-    public BookingWindowBody get() {
-        return new BookingWindowBody(window.mode());
+    public BookingWindowView get() {
+        return view(window.mode());
     }
 
     @PutMapping("/admin/booking-window")
-    public BookingWindowBody set(@Valid @RequestBody BookingWindowBody body) {
-        return new BookingWindowBody(window.setMode(body.mode()));
+    public BookingWindowView set(@Valid @RequestBody BookingWindowBody body) {
+        return view(window.setMode(body.mode()));
+    }
+
+    private BookingWindowView view(String mode) {
+        return new BookingWindowView(mode, window.horizonDays(), window.lastBookable(mode).toString());
     }
 }

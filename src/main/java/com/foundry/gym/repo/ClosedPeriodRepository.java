@@ -8,11 +8,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ClosedPeriodRepository extends JpaRepository<ClosedPeriod, Long> {
 
-    /** Periods that have not ended before the given date. */
-    List<ClosedPeriod> findByEndDateGreaterThanEqualOrderByStartDateAsc(LocalDate date);
+    /** Periods of one gym that have not ended before the given date. */
+    List<ClosedPeriod> findByGymIdAndEndDateGreaterThanEqualOrderByStartDateAsc(Long gymId, LocalDate date);
 
-    /** Periods that include the given date. */
-    List<ClosedPeriod> findByStartDateLessThanEqualAndEndDateGreaterThanEqual(LocalDate start, LocalDate end);
+    /** Periods of one gym that include the given date. */
+    List<ClosedPeriod> findByGymIdAndStartDateLessThanEqualAndEndDateGreaterThanEqual(Long gymId, LocalDate start, LocalDate end);
 
-    List<ClosedPeriod> findByKindAndStartDate(String kind, LocalDate startDate);
+    List<ClosedPeriod> findByGymIdAndKindAndStartDate(Long gymId, String kind, LocalDate startDate);
 }

@@ -29,8 +29,10 @@ public class MemberController {
 
     private final AccountService accounts;
     private final BookingService bookings;
+    private final com.foundry.gym.service.GymService gyms;
 
-    public MemberController(AccountService accounts, BookingService bookings) {
+    public MemberController(AccountService accounts, BookingService bookings, com.foundry.gym.service.GymService gyms) {
+        this.gyms = gyms;
         this.accounts = accounts;
         this.bookings = bookings;
     }
@@ -43,8 +45,15 @@ public class MemberController {
     @GetMapping("/sessions")
     public List<SessionView> sessions(@AuthenticationPrincipal AuthUser me,
                                       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return bookings.sessions(me.id(), from, to);
+                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                      @RequestParam(required = false) Long gymId) {
+        return bookings.sessions(me.id(), from, to, gyms.forMember(gymId, me.id()));
+    }
+
+    /** The gym this member chose to train at; it is remembered as their home gym. */
+    @org.springframework.web.bind.annotation.PutMapping("/me/home-gym")
+    public void homeGym(@AuthenticationPrincipal AuthUser me, @RequestBody com.foundry.gym.dto.Dtos.HomeGymBody body) {
+        gyms.setHomeGym(me.id(), body.gymId());
     }
 
     @PostMapping("/bookings")

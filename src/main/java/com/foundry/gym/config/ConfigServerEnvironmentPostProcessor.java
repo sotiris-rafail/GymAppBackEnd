@@ -28,8 +28,9 @@ import org.springframework.core.env.StandardEnvironment;
  * <p>Priority: command line, JVM system properties and environment variables still win over the config server, and the
  * config server wins over {@code application.yml}. So an environment variable is always a way to override one setting.
  *
- * <p>If the config server cannot be reached the backend starts with its local settings and logs a warning, unless
- * {@code config.client.required=true}, in which case it refuses to start.
+ * <p>If the config server cannot be reached the backend refuses to start (it needs the password salt and the email key
+ * from there). Only {@code config.client.required=false} lets it start with local settings and a warning; the two keys
+ * must then come from environment variables.
  *
  * <p>Registered in {@code META-INF/spring.factories}. Switch it off with {@code config.client.enabled=false}.
  */
@@ -57,7 +58,7 @@ public class ConfigServerEnvironmentPostProcessor implements EnvironmentPostProc
         String app = env.getProperty("config.client.app", "backend");
         String clientId = env.getProperty("config.client.client-id", "backend");
         String clientSecret = env.getProperty("config.client.client-secret", "");
-        boolean required = Boolean.parseBoolean(env.getProperty("config.client.required", "false"));
+        boolean required = Boolean.parseBoolean(env.getProperty("config.client.required", "true"));
         long timeoutMs = Long.parseLong(env.getProperty("config.client.timeout-ms", "3000"));
         String profiles = String.join(",", env.getActiveProfiles());
 
@@ -79,6 +80,16 @@ public class ConfigServerEnvironmentPostProcessor implements EnvironmentPostProc
             }
             log.warn(why + ". Starting with the local settings.");
         }
+    }
+
+    /** Fetches the settings again for a running backend, with the same address, client and profiles it started with. */
+    public static Map<String, Object> fetchFor(org.springframework.core.env.Environment env) throws Exception {
+        return fetch(env.getProperty("config.client.url", "http://localhost:8888").replaceAll("/+$", ""),
+            env.getProperty("config.client.app", "backend"),
+            String.join(",", ((ConfigurableEnvironment) env).getActiveProfiles()),
+            env.getProperty("config.client.client-id", "backend"),
+            env.getProperty("config.client.client-secret", ""),
+            Long.parseLong(env.getProperty("config.client.timeout-ms", "3000")));
     }
 
     /**

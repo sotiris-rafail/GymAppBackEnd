@@ -42,15 +42,20 @@ public class AccountService {
     private final PlanHistoryRepository history;
     private final PasswordEncoder encoder;
     private final Clock clock;
+    private final com.foundry.gym.config.FeatureFlags flags;
+    private final com.foundry.gym.security.EmailCrypto emailCrypto;
 
     public AccountService(AppUserRepository users, PlanRepository plans, BookingRepository bookings,
-                          PlanHistoryRepository history, PasswordEncoder encoder, Clock clock) {
+                          PlanHistoryRepository history, PasswordEncoder encoder, Clock clock,
+                          com.foundry.gym.config.FeatureFlags flags, com.foundry.gym.security.EmailCrypto emailCrypto) {
+        this.emailCrypto = emailCrypto;
         this.history = history;
         this.users = users;
         this.plans = plans;
         this.bookings = bookings;
         this.encoder = encoder;
         this.clock = clock;
+        this.flags = flags;
     }
 
     public static String normalizeEmail(String email) {
@@ -58,22 +63,26 @@ public class AccountService {
     }
 
     /** Members and the admin log in through separate tabs, so the role has to match as well. */
-    @Transactional(readOnly = true)
+    @Transactional
     public UserView login(String email, String password, Role role) {
-        AppUser u = users.findByEmail(normalizeEmail(email))
+        AppUser u = users.findByEmailHash(emailCrypto.index(email))
             .filter(x -> x.getRole() == role && encoder.matches(password, x.getPasswordHash()))
             .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED,
                 "That email and password do not match " + (role == Role.ADMIN ? "an admin" : "a member") + " account."));
+        if (encoder.upgradeEncoding(u.getPasswordHash())) {
+            // a hash made before the secret salt existed: now that the password is known, make it the new kind
+            u.setPasswordHash(encoder.encode(password));
+        }
         return Views.user(u);
     }
 
     @Transactional
     public UserView registerMember(String name, String email, String password) {
         String mail = normalizeEmail(email);
-        if (users.existsByEmail(mail)) {
+        if (users.existsByEmailHash(emailCrypto.index(mail))) {
             throw ApiException.conflict("An account with that email already exists. Log in instead.");
         }
-        AppUser u = users.save(new AppUser(name.trim(), mail, encoder.encode(password), Role.MEMBER));
+        AppUser u = users.save(new AppUser(name.trim(), mail, emailCrypto.index(mail), encoder.encode(password), Role.MEMBER));
         return Views.user(u);
     }
 
@@ -110,6 +119,9 @@ public class AccountService {
             .orElseThrow(() -> ApiException.notFound("Member"));
         Plan next = planId == null ? null : plans.findById(planId).orElseThrow(() -> ApiException.notFound("Plan"));
         Long before = u.getPlan() == null ? null : u.getPlan().getId();
+        if (next != null && next.isUnlimited() && !flags.unlimitedPlans() && !Objects.equals(before, planId)) {
+            throw ApiException.badRequest("Unlimited plans are turned off."); // members who already have one keep it
+        }
         if (!Objects.equals(before, planId)) { // assigning the plan they already have changes nothing
             Instant now = Instant.now(clock);
             history.findByUserIdAndEndedAtIsNull(memberId).forEach(h -> h.setEndedAt(now));
@@ -118,6 +130,12 @@ public class AccountService {
             }
         }
         u.setPlan(next);
+        return memberView(u, YearMonth.from(LocalDate.now(clock)));
+    }
+
+    @Transactional(readOnly = true)
+    public MemberView member(Long memberId) {
+        AppUser u = users.findById(memberId).filter(x -> x.getRole() == Role.MEMBER).orElseThrow(() -> ApiException.notFound("Member"));
         return memberView(u, YearMonth.from(LocalDate.now(clock)));
     }
 
@@ -166,6 +184,6 @@ public class AccountService {
         int used = (int) bookings.countByUserIdAndSessionDateBetween(u.getId(), month.atDay(1), month.atEndOfMonth());
         return new MemberView(u.getId(), u.getName(), u.getEmail(),
             p == null ? null : p.getId(), p == null ? null : p.getName(),
-            p == null ? null : p.getVisitsPerMonth(), p != null && p.isUnlimited(), used);
+            p == null ? null : p.getVisitsPerMonth(), p != null && p.isUnlimited(), used, u.getHomeGymId());
     }
 }

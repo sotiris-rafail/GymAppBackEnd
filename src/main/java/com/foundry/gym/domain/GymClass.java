@@ -33,6 +33,10 @@ public class GymClass {
     @Column(length = 40)
     private String coach;
 
+    /** The gym this class runs at. Defaults to the first gym so a class created without one still has a place. */
+    @Column(name = "gym_id", nullable = false)
+    private Long gymId = Gym.FIRST_ID;
+
     @Column(name = "start_time", nullable = false)
     private LocalTime startTime;
 
@@ -61,6 +65,8 @@ public class GymClass {
     }
 
     public Long getId() { return id; }
+    public Long getGymId() { return gymId; }
+    public void setGymId(Long gymId) { this.gymId = gymId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getCoach() { return coach; }

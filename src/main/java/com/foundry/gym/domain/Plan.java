@@ -31,6 +31,14 @@ public class Plan {
     @Column(nullable = false)
     private boolean unlimited;
 
+    /** When the plan was created: the "new plan" email goes out for plans created in the last few days. */
+    @Column(name = "created_at", nullable = false)
+    private java.time.Instant createdAt = java.time.Instant.now();
+
+    /** The gym this plan is for; empty = valid at all gyms. */
+    @Column(name = "gym_id")
+    private Long gymId;
+
     protected Plan() {
     }
 
@@ -40,6 +48,10 @@ public class Plan {
         this.visitsPerMonth = visitsPerMonth;
     }
 
+    public Long getGymId() { return gymId; }
+    public void setGymId(Long gymId) { this.gymId = gymId; }
+    public java.time.Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(java.time.Instant createdAt) { this.createdAt = createdAt; }
     public Long getId() { return id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

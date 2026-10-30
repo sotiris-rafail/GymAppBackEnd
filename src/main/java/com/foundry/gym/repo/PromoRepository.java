@@ -7,6 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PromoRepository extends JpaRepository<Promo, Long> {
 
+    /** Items the admin ticked for a marketing email that has not been queued yet. */
+    List<Promo> findByMarketingTrueAndMarketingQueuedAtIsNullAndActiveTrue();
+
     List<Promo> findByActiveTrueOrderBySortOrderAscIdAsc();
 
     List<Promo> findAllByOrderBySortOrderAscIdAsc();

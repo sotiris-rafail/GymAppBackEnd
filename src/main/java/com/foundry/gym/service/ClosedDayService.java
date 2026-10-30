@@ -38,17 +38,18 @@ public class ClosedDayService {
         return d.getDayOfWeek() == DayOfWeek.SUNDAY;
     }
 
-    /** True for Sundays and for any date the admin closed. */
+    /** True for Sundays and for any date the admin closed at that gym. */
     @Transactional(readOnly = true)
-    public boolean isClosed(LocalDate d) {
-        return isSunday(d) || repo.existsByClosedOn(d) || !periods.findByStartDateLessThanEqualAndEndDateGreaterThanEqual(d, d).isEmpty();
+    public boolean isClosed(Long gymId, LocalDate d) {
+        return isSunday(d) || repo.existsByGymIdAndClosedOn(gymId, d)
+            || !periods.findByGymIdAndStartDateLessThanEqualAndEndDateGreaterThanEqual(gymId, d, d).isEmpty();
     }
 
     /** The admin-closed dates inside a range (Sundays are implied, not listed). */
     @Transactional(readOnly = true)
-    public Set<LocalDate> closedBetween(LocalDate from, LocalDate to) {
-        Set<LocalDate> out = repo.findByClosedOnBetween(from, to).stream().map(ClosedDay::getClosedOn).collect(Collectors.toSet());
-        for (ClosedPeriod p : periods.findByEndDateGreaterThanEqualOrderByStartDateAsc(from)) {
+    public Set<LocalDate> closedBetween(Long gymId, LocalDate from, LocalDate to) {
+        Set<LocalDate> out = repo.findByGymIdAndClosedOnBetween(gymId, from, to).stream().map(ClosedDay::getClosedOn).collect(Collectors.toSet());
+        for (ClosedPeriod p : periods.findByGymIdAndEndDateGreaterThanEqualOrderByStartDateAsc(gymId, from)) {
             for (LocalDate d = p.getStartDate().isBefore(from) ? from : p.getStartDate(); !d.isAfter(p.getEndDate()) && !d.isAfter(to); d = d.plusDays(1)) {
                 out.add(d);
             }
@@ -57,11 +58,11 @@ public class ClosedDayService {
     }
 
     @Transactional(readOnly = true)
-    public List<ClosedDayView> all() {
-        List<ClosedDayView> out = new java.util.ArrayList<>(repo.findAllByOrderByClosedOnAsc().stream().map(ClosedDayService::view).toList());
+    public List<ClosedDayView> all(Long gymId) {
+        List<ClosedDayView> out = new java.util.ArrayList<>(repo.findByGymIdOrderByClosedOnAsc(gymId).stream().map(ClosedDayService::view).toList());
         Set<String> listed = new HashSet<>();
         out.forEach(v -> listed.add(v.date()));
-        for (ClosedPeriod p : periods.findByEndDateGreaterThanEqualOrderByStartDateAsc(LocalDate.now(clock))) {
+        for (ClosedPeriod p : periods.findByGymIdAndEndDateGreaterThanEqualOrderByStartDateAsc(gymId, LocalDate.now(clock))) {
             for (LocalDate d = p.getStartDate(); !d.isAfter(p.getEndDate()); d = d.plusDays(1)) {
                 if (!isSunday(d) && listed.add(d.toString())) {
                     out.add(new ClosedDayView(d.toString(), "", p.getKind()));
@@ -74,14 +75,14 @@ public class ClosedDayService {
 
     /** Weeks and months that are closed and have not ended yet. */
     @Transactional(readOnly = true)
-    public List<ClosedPeriodView> openPeriods() {
-        return periods.findByEndDateGreaterThanEqualOrderByStartDateAsc(LocalDate.now(clock)).stream()
+    public List<ClosedPeriodView> openPeriods(Long gymId) {
+        return periods.findByGymIdAndEndDateGreaterThanEqualOrderByStartDateAsc(gymId, LocalDate.now(clock)).stream()
             .map(p -> new ClosedPeriodView(p.getKind(), p.getStartDate().toString(), p.getEndDate().toString())).toList();
     }
 
     /** Closes (or opens again) bookings for the current week (Monday to Sunday) or the current calendar month. */
     @Transactional
-    public List<ClosedPeriodView> setPeriod(String kind, boolean closed) {
+    public List<ClosedPeriodView> setPeriod(Long gymId, String kind, boolean closed) {
         LocalDate today = LocalDate.now(clock);
         LocalDate from, to;
         if ("WEEK".equals(kind)) {
@@ -94,28 +95,28 @@ public class ClosedDayService {
         } else {
             throw ApiException.badRequest("Period must be WEEK or MONTH.");
         }
-        List<ClosedPeriod> existing = periods.findByKindAndStartDate(kind, from);
+        List<ClosedPeriod> existing = periods.findByGymIdAndKindAndStartDate(gymId, kind, from);
         if (closed && existing.isEmpty()) {
-            periods.save(new ClosedPeriod(kind, from, to));
+            periods.save(new ClosedPeriod(gymId, kind, from, to));
         } else if (!closed) {
             periods.deleteAll(existing);
         }
-        return openPeriods();
+        return openPeriods(gymId);
     }
 
     @Transactional
-    public ClosedDayView add(ClosedDayRequest r) {
+    public ClosedDayView add(Long gymId, ClosedDayRequest r) {
         if (isSunday(r.date())) {
             throw ApiException.badRequest("Sundays are always closed.");
         }
-        ClosedDay c = repo.findByClosedOn(r.date()).orElseGet(() -> new ClosedDay(r.date(), null));
+        ClosedDay c = repo.findByGymIdAndClosedOn(gymId, r.date()).orElseGet(() -> new ClosedDay(gymId, r.date(), null));
         c.setReason(r.reason() == null || r.reason().isBlank() ? null : r.reason().trim());
         return view(repo.save(c));
     }
 
     @Transactional
-    public void remove(LocalDate date) {
-        ClosedDay c = repo.findByClosedOn(date).orElseThrow(() -> ApiException.notFound("Closed day"));
+    public void remove(Long gymId, LocalDate date) {
+        ClosedDay c = repo.findByGymIdAndClosedOn(gymId, date).orElseThrow(() -> ApiException.notFound("Closed day"));
         repo.delete(c);
     }
 

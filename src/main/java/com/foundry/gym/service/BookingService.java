@@ -43,10 +43,12 @@ public class BookingService {
     private final Clock clock;
     private final ClosedDayService closedDays;
     private final BookingWindowService window;
+    private final GymService gyms;
     private final int maxDaysAhead;
 
     public BookingService(BookingRepository bookings, GymClassRepository classes, AppUserRepository users, Clock clock,
-                          GymProperties props, ClosedDayService closedDays, BookingWindowService window) {
+                          GymProperties props, ClosedDayService closedDays, BookingWindowService window, GymService gyms) {
+        this.gyms = gyms;
         this.closedDays = closedDays;
         this.window = window;
         this.maxDaysAhead = Math.max(1, props.bookingHorizonDays());
@@ -58,7 +60,7 @@ public class BookingService {
 
     /** Every class occurrence in the date range, with how many seats are taken and whether this member holds one. */
     @Transactional(readOnly = true)
-    public List<SessionView> sessions(Long userId, LocalDate from, LocalDate to) {
+    public List<SessionView> sessions(Long userId, LocalDate from, LocalDate to, com.foundry.gym.domain.Gym gym) {
         if (to.isBefore(from)) {
             throw ApiException.badRequest("'to' must not be before 'from'.");
         }
@@ -73,12 +75,12 @@ public class BookingService {
         for (Booking b : bookings.findForUserBetween(userId, from, to)) {
             mine.put(b.getGymClass().getId() + "|" + b.getSessionDate(), b.getId());
         }
-        List<GymClass> all = classes.findAll().stream()
+        List<GymClass> all = classes.findByGymId(gym.getId()).stream()
             .sorted(Comparator.comparing(GymClass::getStartTime).thenComparing(GymClass::getId))
             .toList();
 
         String windowMode = window.mode();
-        java.util.Set<LocalDate> closed = closedDays.closedBetween(from, to);
+        java.util.Set<LocalDate> closed = closedDays.closedBetween(gym.getId(), from, to);
         List<SessionView> out = new ArrayList<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
             if (ClosedDayService.isSunday(d) || closed.contains(d) || !window.allows(windowMode, d)) {
@@ -100,7 +102,10 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public List<BookingView> myBookings(Long userId) {
-        return bookings.findForUser(userId).stream().map(Views::booking).toList();
+        java.util.Map<Long, String> names = gyms.names();
+        Long def = gyms.defaultGym().getId();
+        return bookings.findForUser(userId).stream()
+            .map(b -> Views.booking(b, names.get(b.getGymClass().getGymId()), def.equals(b.getGymClass().getGymId()))).toList();
     }
 
     /**
@@ -120,19 +125,22 @@ public class BookingService {
             throw ApiException.badRequest(c.getName() + " does not run on " + date.getDayOfWeek()
                 .getDisplayName(TextStyle.FULL, Locale.ENGLISH) + "s.");
         }
-        if (closedDays.isClosed(date)) {
+        gyms.requireBookable(c.getGymId());
+        if (gyms.multi() && plan.getGymId() != null && !plan.getGymId().equals(c.getGymId())) {
+            throw ApiException.conflict("Your plan is not valid at " + gyms.names().get(c.getGymId()) + ".");
+        }
+        if (closedDays.isClosed(c.getGymId(), date)) {
             throw ApiException.conflict(ClosedDayService.isSunday(date) ? "The gym is closed on Sundays." : "The gym is closed on that day.");
         }
-        if (!window.allows(date)) {
+        if (!window.inWindow(window.mode(), date)) {
             throw ApiException.conflict("WEEK".equals(window.mode())
                 ? "Booking is only open for the current week."
                 : "Booking is only open for the current month.");
         }
-        LocalDate today = LocalDate.now(clock);
-        if (date.isAfter(today.plusDays(maxDaysAhead))) {
+        if (!window.withinHorizon(date)) {
             throw ApiException.badRequest("You can book up to " + maxDaysAhead + " days ahead.");
         }
-        if (LocalDateTime.of(date, c.getStartTime()).isBefore(LocalDateTime.now(clock))) {
+        if (LocalDateTime.of(date, c.getStartTime()).isBefore(LocalDateTime.now(gyms.clockOf(c.getGymId())))) {
             throw ApiException.conflict("That class has already started.");
         }
         if (bookings.existsByUserIdAndGymClassIdAndSessionDate(userId, classId, date)) {
@@ -147,7 +155,7 @@ public class BookingService {
             throw ApiException.conflict("No visits left in " + month.getMonth()
                 .getDisplayName(TextStyle.FULL, Locale.ENGLISH) + ". Your plan includes " + plan.getVisitsPerMonth() + ".");
         }
-        return Views.booking(bookings.save(new Booking(user, c, date)));
+        return Views.booking(bookings.save(new Booking(user, c, date)), gyms.names().get(c.getGymId()), c.getGymId().equals(gyms.defaultGym().getId()));
     }
 
     /** Cancelling a class that has not started gives the visit back (the booking simply disappears). */
@@ -155,7 +163,7 @@ public class BookingService {
     public void cancel(Long userId, Long bookingId) {
         Booking b = bookings.findByIdAndUserId(bookingId, userId).orElseThrow(() -> ApiException.notFound("Booking"));
         GymClass c = b.getGymClass();
-        if (LocalDateTime.of(b.getSessionDate(), c.getStartTime()).isBefore(LocalDateTime.now(clock))) {
+        if (LocalDateTime.of(b.getSessionDate(), c.getStartTime()).isBefore(LocalDateTime.now(gyms.clockOf(c.getGymId())))) {
             throw new ApiException(HttpStatus.CONFLICT, "Classes that already started cannot be cancelled.");
         }
         bookings.delete(b);
@@ -163,14 +171,14 @@ public class BookingService {
 
     /** Admin view: for every class, who is booked on which date in the month (all classes are listed, even empty ones). */
     @Transactional(readOnly = true)
-    public List<ClassAttendance> attendance(YearMonth month) {
+    public List<ClassAttendance> attendance(YearMonth month, com.foundry.gym.domain.Gym gym) {
         Map<Long, Map<LocalDate, List<Attendee>>> byClass = new HashMap<>();
         for (Booking b : bookings.findAllBetween(month.atDay(1), month.atEndOfMonth())) {
             byClass.computeIfAbsent(b.getGymClass().getId(), k -> new java.util.TreeMap<>())
                 .computeIfAbsent(b.getSessionDate(), k -> new ArrayList<>())
                 .add(new Attendee(b.getUser().getId(), b.getUser().getName()));
         }
-        return classes.findAll(org.springframework.data.domain.Sort.by("startTime", "id")).stream().map(c -> {
+        return classes.findByGymId(gym.getId(), org.springframework.data.domain.Sort.by("startTime", "id")).stream().map(c -> {
             Map<LocalDate, List<Attendee>> dates = byClass.getOrDefault(c.getId(), Map.of());
             List<SessionAttendance> sessions = dates.entrySet().stream()
                 .map(e -> new SessionAttendance(e.getKey(), e.getValue())).toList();

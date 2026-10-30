@@ -40,7 +40,7 @@ The API listens on http://localhost:8080. Then start the UI from the `foundry-gy
 Start the config server first (see below). If it is not running the backend still starts, with the settings in
 `application.yml`, and logs a warning.
 
-Data is stored in `./data/foundry.mv.db` (an H2 file database), so it survives restarts. Delete the
+Data is stored in `data/foundry.mv.db.old` (an H2 file database), so it survives restarts. Delete the
 `data` folder to start over.
 
 On the first start with an empty database the app creates the admin account and some example plans,
@@ -67,6 +67,31 @@ Members can also create their own account on the login screen.
 | `GYM_DB_PATH`         | ./data/foundry     | Where the database file lives                             |
 
 Set `GYM_ADMIN_PASSWORD` before the first start of anything other than a demo.
+
+## Secret password salt and email encryption
+
+Two secrets come from the config server (app `backend`, both marked secret there; the config server makes random ones on
+its first start). They have **no default**: the backend refuses to start if either is missing or shorter than 16
+characters. An environment variable overrides the config server (`GYM_PASSWORD_SALT`, `GYM_EMAIL_KEY`); make one with
+`openssl rand -base64 32`.
+
+| Config server key            | What it does |
+|------------------------------|--------------|
+| `gym.security.password-salt` | A secret salt mixed into every password. The password is run through HMAC-SHA256 with it, and the result is hashed with BCrypt (which still adds its own random salt per user). New hashes start with `p1$`. A stolen database cannot be attacked offline without this secret, and passwords longer than 72 bytes are no longer cut off. |
+| `gym.security.email-key`     | Encrypts every email address with AES-256-GCM (a random IV each time, stored as `v1:...`). Because the ciphertext differs every time it cannot be searched, so a second column `email_hash` (HMAC-SHA256 of the lower-case address, unique) is used for login and the "already registered" check. |
+
+What happens to what is already there: the changeset `encrypted-email-001` widens `app_user.email` and adds `email_hash`.
+At start-up `EmailEncryptionMigration` encrypts the address of every existing account (it runs on every start and does
+nothing once all are done). Existing passwords keep working: plain BCrypt hashes still verify, and each one is replaced by
+the salted kind the first time that person logs in.
+
+**Do not change either secret once accounts exist.** A different salt makes every `p1$` password fail (there is no
+password reset), and a different key makes the stored addresses unreadable (the backend stops with "Could not decrypt an
+email address"). Back them up together with the config server's database. Rotating them would need a one-off job that
+re-encrypts the addresses; passwords cannot be moved to a new salt without each person logging in again.
+
+Not covered: the config server itself, the database file and its backups are as safe as you keep them; names, plans and
+bookings are not encrypted; the address is visible in memory while the app runs and in the admin's member list, as before.
 
 ## Backend on your own computer, UI hosted elsewhere
 
@@ -108,7 +133,7 @@ server. Changes made in the console apply the next time the backend starts.
 | `CONFIG_SERVER_URL`      | http://localhost:8888   | Where the config server is                               |
 | `CONFIG_CLIENT_ID` / `CONFIG_CLIENT_SECRET` | backend / backend-secret | The client id and secret configured on the config server (`cfg.clients`); they are only used to get a token |
 | `CONFIG_APP_NAME`        | backend                 | Which application's settings to fetch                    |
-| `CONFIG_CLIENT_REQUIRED` | false                   | `true`: refuse to start when the config server cannot be reached |
+| `CONFIG_CLIENT_REQUIRED` | true                    | Refuse to start when the config server cannot be reached. `false` starts anyway (then `GYM_PASSWORD_SALT` and `GYM_EMAIL_KEY` must be set) |
 
 Active Spring profiles (`SPRING_PROFILES_ACTIVE=prod`) are passed on, so the server can hold `prod` overrides.
 The log says how many settings were loaded, never their values.
@@ -120,6 +145,21 @@ The log says how many settings were loaded, never their values.
   started gives it back. A plan can instead be **unlimited** (`unlimited: true`, changeset `unlimited-plan-001`): such a
   member can book as many classes as they like (the usual capacity, closed days and booking window still apply).
   `visitsPerMonth` is stored as 0 for an unlimited plan and is ignored in requests; for a limited plan it is required.
+
+### Switching unlimited plans on and off (config server)
+
+The setting `plans.unlimited-enabled` (app `backend` in the config server; a missing value means `true`) turns the option on
+or off. The backend asks the config server again every `config.client.refresh-seconds` (default 300, so every 5 minutes; env `CONFIG_REFRESH_SECONDS`), so a change in the
+console takes effect within 5 minutes without restarting. The value is held in one shared instance (`FeatureFlags`), so requests never wait for the config server. When it is `false`:
+
+* a plan cannot be created as, or switched to, unlimited, and no member can be assigned an unlimited plan (400 `Unlimited
+  plans are turned off.`);
+* plans that are already unlimited keep working: their members keep booking, the plan can be edited, and it can be switched
+  to a limited plan;
+* `GET /api/features` returns `{"unlimitedPlans": false, "mail": true, "analytics": true, "home": true}` so the UI greys out the option (`mail` is whether this backend can send email, `analytics` whether the Analytics page is switched on).
+
+An environment variable `PLANS_UNLIMITED_ENABLED`, a JVM property or a command line argument beats the config server and fixes
+the value (the config server is then not asked). If the config server is unreachable the last known value stays in force.
 * Only the admin assigns plans. A member sees their plan but cannot change it, and holds one plan (or none) at a time. Removing a plan leaves classes already booked in place.
 * Booking locks the member row and then the class row inside one transaction, so two requests at the same
   moment cannot take the last seat or exceed the monthly limit.
@@ -211,10 +251,17 @@ set to `WEEK` or `MONTH` for dates closed that way. Existing bookings on a date 
 
 ## Booking window
 
-`GET /api/booking-window` (any signed-in user) returns `{"mode":"ANY|WEEK|MONTH"}` and `PUT /api/admin/booking-window` with the
-same body changes it. `ANY` (the default) keeps the normal booking horizon, `WEEK` lets members book only inside the
-current week (Monday to Sunday) and `MONTH` only inside the current calendar month. Dates outside the window are not
-returned by `/api/sessions` and booking them answers 409. Stored in table `app_setting` (changeset `app-setting-001`).
+`GET /api/booking-window` (any signed-in user) returns `{"mode":"ANY|WEEK|MONTH","horizonDays":90,"lastBookable":"2027-01-12"}`
+and `PUT /api/admin/booking-window` with `{"mode":"..."}` changes the mode (and returns the same three fields). `ANY` (the
+default) adds no limit of its own, `WEEK` lets members book only inside the current week (Monday to Sunday) and `MONTH` only
+inside the current calendar month.
+
+The window works together with the booking horizon `gym.booking-horizon-days` (default 90; a config server setting read when
+the backend starts): **a day is bookable only when it is inside the window and no more than that many days after today**, so
+the window can only shorten the horizon, never extend it. `lastBookable` is the earlier of today + horizon and the end of the
+window; the UI uses it to grey out later days. Days that fail either rule are not returned by `/api/sessions`; booking one
+answers 409 for the window ("Booking is only open for the current week/month.") or 400 for the horizon ("You can book up to N
+days ahead."). Stored in table `app_setting` (changeset `app-setting-001`).
 
 ## Profile and password
 
@@ -224,3 +271,137 @@ signed in), the new one must be 6 to 72 characters and different from the old on
 changed by its owner: name and email are fixed, and the plan is assigned by the admin. `GET /api/auth/me` returns the
 profile (id, name, email, role, planId).
 
+
+### Mandatory at start-up
+
+The backend will not start unless all three are in place:
+
+* the config server answers (`CONFIG_CLIENT_REQUIRED` is `true` by default; set it to `false` only for a run without a
+  config server, and then supply the keys yourself),
+* `gym.security.password-salt` is known (config server, or `GYM_PASSWORD_SALT`),
+* `gym.security.email-key` is known (config server, or `GYM_EMAIL_KEY`).
+
+Each of the last two must be at least 16 characters. A local run without a config server therefore needs:
+`CONFIG_CLIENT_REQUIRED=false GYM_PASSWORD_SALT=... GYM_EMAIL_KEY=... mvn spring-boot:run`.
+
+
+## Emails to members (schedulers)
+
+Off until `gym.mail.enabled` is `true` on the config server, and live after that (see below). The toggles in a member's Preferences are
+honoured by timers inside the backend. They only *decide* who should get which email and put it in a table, `email_outbox`;
+a second timer *sends* from that table. This is what makes them safe: the table's unique (member, key) pair means nobody
+gets the same email twice (after a restart, or when a job overlaps itself), a failed send is kept and retried, and the
+member's choice is checked again at the moment of sending, so switching an email off also stops one already queued.
+
+| Toggle in Preferences | Who gets it, and when | Key (one per member) |
+|---|---|---|
+| **Marketing emails** | Items on the home page that the admin ticked **Also send as a marketing email** (once, after the admin saves; the item must be active and not past its hide-on date), and emails the admin sends from the **Marketing** page | `promo:<id>`, `campaign:<id>` |
+| **New plans** | Plans created in the last `news-window-days` days (default 7). Plans that existed before the feature get a date long ago, so they are never announced | `plan:<id>` |
+| **Plan almost used up** | A member on a limited plan who has booked at least one class and has exactly 2 visits left this month (visits per month minus classes booked in the month) | `ending:<yyyy-MM>` |
+| **Visits left reminder** | From the 21st of the month (and from `reminder-hour`, default 9:00 gym time) on: a member on a limited plan who still has visits left this month | `reminder:<yyyy-MM>` |
+
+Members on an unlimited plan get neither of the two visit emails. Wording is plain text, starts with the member's name and
+ends with why they got it and how to switch it off. The address is read, and decrypted, from the account at the moment of
+sending (it is never copied into the outbox).
+
+**Timers** (`NotificationScheduler`): every `scan-seconds` (900) the four jobs queue emails, every `send-seconds` (60) the
+queue is sent (up to `batch-size`), and once a day finished rows older than 90 days are removed. A failed send is tried
+again after 1, 2, 4... minutes (at most an hour) and given up (`FAILED`) after `max-attempts` (5). A job that throws is
+logged and the others still run. One backend is assumed; with two the unique key still prevents duplicates, but one of them
+would log a failed job now and then.
+
+| Setting (`gym.mail.*`) | Default | What it does |
+|---|---|---|
+| `enabled` | false | Switches everything on or off, live. When true at start-up the backend **refuses to start** unless `spring.mail.host` and `from` are set |
+| `from` | | Sender, e.g. `Foundry Gym <no-reply@yourgym.com>` |
+| `app-url` | | Address of the web app, shown in the emails |
+| `gym-name`, `currency` | Foundry, € | Wording of the emails |
+| `scan-seconds`, `send-seconds`, `initial-delay-seconds` | 900, 60, 30 | Timer intervals (read at start-up only) |
+| `reminder-hour`, `news-window-days`, `max-attempts`, `batch-size` | 9, 7, 5, 50 | See above |
+
+Every one of these settings, and the mail server's, is fetched from the config server (app `backend`); the config server creates
+all of them with sensible defaults the first time it starts (or when one is missing), so you only fill in the host, user,
+password and sender there and set `gym.mail.enabled` to `true`. The mail server uses the standard Spring settings, with the password as a secret:
+`spring.mail.host`, `spring.mail.port`, `spring.mail.username`, `spring.mail.password`,
+`spring.mail.properties.mail.smtp.auth=true`, `spring.mail.properties.mail.smtp.starttls.enable=true`.
+
+**Live, no restart.** Like `plans.unlimited-enabled`, all of these are kept in one shared object (`MailSettings`, a Spring
+singleton) that asks the config server again every `config.client.refresh-seconds` (default 300, i.e. every 5 minutes). So
+turning the emails off, or changing the mail server, user, password, sender address or wording, takes effect within 5 minutes
+and the very next email uses the new connection settings. Only `scan-seconds`, `send-seconds` and `initial-delay-seconds`
+(the timers themselves) need a restart. Details:
+
+* **Off** (`gym.mail.enabled=false`): the timers keep running but queue and send nothing (what is already queued waits and is
+  sent after switching on again), the Marketing page cannot send (409), and members **cannot turn a Preferences toggle on**:
+  `PUT /api/me/preferences` answers 409 "Emails are switched off at the moment, so they cannot be turned on. You can still
+  turn them off." for a toggle going from off to on; turning one off is always allowed. `GET /api/features` returns
+  `"mail": false`, which the UI uses to grey the switches out.
+* **At start-up**, `enabled=true` with `spring.mail.host` or `gym.mail.from` missing stops the backend from starting.
+* **Later**, a change that would leave the emails on but incomplete (no host or no sender) is refused: it is logged once and the
+  previous working settings stay in force, so a typo in the console cannot break sending.
+* If the config server is unreachable the last settings stay in force (logged once). An environment variable, JVM property or
+  command line argument still beats the config server for that one key and keeps it fixed.
+* The password is never logged.
+
+### Marketing page and home page tick (admin)
+
+* `POST/PUT /api/admin/promos` take a new `marketing` flag (400 "To email an item it needs some text or a link." when the item
+  has neither). The marketing job queues the item for every member with marketing on and then stamps the item
+  (`marketingSentAt`, `marketingRecipients`); from then on the flag can no longer be changed.
+* `/api/admin/marketing` (admin only): `GET` lists the emails newest first with delivery counts (delivered, waiting, failed,
+  skipped), `POST` creates a draft `{subject, body, linkUrl}`, `PUT /{id}` and `DELETE /{id}` change or remove a draft
+  (409 once sent), `POST /{id}/send` queues one email per member who has marketing on (409 when `gym.mail.enabled` is off, 400
+  when nobody has it on) and marks it SENT; the sending timer delivers them within about a minute. `GET /status` returns
+  `{mailEnabled, optedIn}`.
+
+Tests: `EmailJobsTests` runs the four jobs, the sender (retry, switched off meanwhile) and the Marketing API against H2 with a
+fixed clock (22 Oct 2026, 10:00) and a recording stand-in for the mail server. Nothing in the test suite sends real mail.
+
+
+## Analytics (admin)
+
+`GET /api/admin/analytics?from=yyyy-MM-dd&to=yyyy-MM-dd` returns everything the admin's Analytics page shows, worked out
+from data that is already stored (nothing new is written and there is no new table):
+
+* the bookings, fill rate, members-with-a-plan and plan-usage numbers for the period, each compared with the period
+  of the same length just before it; a period of 35 days or less is charted per day, longer per week;
+* members with a plan at the end of a day come from `plan_history` (a member who has a plan but no history counts as
+  always having had it);
+* most booked classes, a weekday x hour table of bookings, members by plan (with the members who have none),
+  plan usage this month, members with a plan and no booking for 30 days, who has each email preference on, and the
+  last sent marketing emails. The last four blocks describe the situation now and ignore the period.
+
+`to` defaults to today and may not be later than today; a period is at most 366 days (otherwise 400).
+Tests: `AnalyticsTests` (run `mvn test`).
+
+
+### Analytics settings from the config server (live)
+
+`analytics.enabled` (default true; false = the menu entry is hidden and `GET /api/admin/analytics` answers 404),
+`analytics.follow-up-days` (default 30) and `analytics.low-fill-percent` (default 65) are read with the other live
+switches (`FeatureFlags`): at start-up and then every `config.client.refresh-seconds` (5 minutes). Bad numbers fall back
+to the default. The report returns `followUpDays` and `lowFillPct` so the page shows the values in force.
+
+
+### Home page switch from the config server (live)
+
+`home.enabled` (default true) is read with the other live switches (`FeatureFlags`). While it is false,
+`GET /api/promos` returns an empty list (still 200, so the home page just shows no items) and every `/api/admin/promos`
+call answers 404 "The home page is switched off." Items are not deleted; turning it back on restores them.
+The emails for items ticked "Also send as a marketing email" are not affected by this switch.
+
+
+### Several gyms (live switch, off by default)
+
+`gyms.multi-enabled` (default false; env var `GYMS_MULTI_ENABLED` pins it) is read with the other live switches.
+Design and rules: `docs/multi_gym_analysis.md`. Summary:
+
+* Off = one gym, exactly as before. A gym "Main gym" (the default gym) always exists (changeset 009).
+* On = `/api/admin/gyms` (add, edit, `PUT /{id}/default`, `PUT /{id}/status` ACTIVE/CLOSING/ARCHIVED), `GET /api/gyms` (what
+  members can choose), `PUT /api/me/home-gym`, `PUT /api/admin/members/{id}/home-gym`, and an optional `?gymId=` on the
+  scoped endpoints (classes, plans, sessions, closed days, promos, attendance, marketing status, analytics).
+* Exactly one default gym; it must be ACTIVE and cannot be closed or archived. ARCHIVED only from CLOSING with no bookings to come.
+* Plans, home page items and marketing emails may be tied to one gym or left for all gyms.
+* Switching off deletes nothing: other gyms are hidden, bookings made there still stand, members' plans keep working at the
+  default gym. `GET /api/admin/gyms/switch-off-check` (always available) lists what is left elsewhere, with
+  `POST /api/admin/gyms/{id}/move-members-to-default` and `/share-plans` to tidy up. It is advice; it never blocks.

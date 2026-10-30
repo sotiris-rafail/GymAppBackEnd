@@ -1,0 +1,30 @@
+databaseChangeLog:
+  # Email addresses are stored encrypted (AES-GCM, a different value every time), so they can no longer be searched or
+  # made unique. email_hash is the searchable, unique fingerprint (HMAC with the config server key). It stays empty for
+  # accounts that already exist; the backend fills it and encrypts their address at start-up (EmailEncryptionMigration).
+  # Several empty values are allowed by the unique constraint, so this changeset needs no key.
+  - changeSet:
+      id: encrypted-email-001
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: app_user
+                columnName: email_hash
+      changes:
+        - addColumn:
+            tableName: app_user
+            columns:
+              - column: { name: email_hash, type: VARCHAR(64) }
+        - dropUniqueConstraint:
+            tableName: app_user
+            constraintName: uk_app_user_email
+        - modifyDataType:
+            tableName: app_user
+            columnName: email
+            newDataType: VARCHAR(600)
+        - addUniqueConstraint:
+            tableName: app_user
+            columnNames: email_hash
+            constraintName: uk_app_user_email_hash

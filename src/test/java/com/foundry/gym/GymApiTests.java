@@ -28,13 +28,20 @@ import org.springframework.test.web.servlet.MvcResult;
     "gym.seed-demo-data=false",
     "config.client.enabled=false",
     "gym.admin.email=boss@test.gym",
-    "gym.admin.password=secret-admin"
+    "gym.admin.password=secret-admin",
+    "gym.security.password-salt=test-password-salt-0123456789",
+    "gym.security.email-key=test-email-key-0123456789abcdef",
+    "gym.mail.enabled=true",
+    "gym.mail.from=Test Gym <no-reply@test.gym>",
+    "spring.mail.host=localhost",
+    "gym.mail.scan-seconds=86400", "gym.mail.send-seconds=86400", "gym.mail.initial-delay-seconds=86400"
 })
 @AutoConfigureMockMvc
 class GymApiTests {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
+    @Autowired com.foundry.gym.mail.MailSettings mailSettings;
 
     private MockHttpSession login(String email, String password, String role) throws Exception {
         MvcResult r = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
@@ -409,6 +416,33 @@ class GymApiTests {
     }
 
     @Test
+    void the_booking_horizon_hides_days_beyond_it_and_is_reported_with_the_window() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Horizon\",\"price\":5,\"unlimited\":true}");
+        long cls = create(admin, "/api/admin/classes",
+            "{\"name\":\"Daily\",\"coach\":\"\",\"startTime\":\"23:45\",\"durationMinutes\":30,\"capacity\":10,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        // the default horizon is 90 days
+        LocalDate last = LocalDate.now().plusDays(90);
+        mvc.perform(get("/api/booking-window").session(m)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.mode").value("ANY"))
+            .andExpect(jsonPath("$.horizonDays").value(90))
+            .andExpect(jsonPath("$.lastBookable").value(last.toString()));
+        LocalDate beyond = nextOpen(last.plusDays(1));
+        mvc.perform(get("/api/sessions?from=" + beyond + "&to=" + beyond.plusDays(2)).session(m))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        book(m, cls, beyond, 400);
+        // with the week window the last bookable day is the end of the week (or the horizon, if that comes first)
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"mode\":\"WEEK\"}")).andExpect(status().isOk())
+            .andExpect(jsonPath("$.horizonDays").value(90))
+            .andExpect(jsonPath("$.lastBookable").value(LocalDate.now().with(java.time.DayOfWeek.MONDAY).plusDays(6).toString()));
+        mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"mode\":\"ANY\"}")).andExpect(status().isOk());
+    }
+
+    @Test
     void unlimited_plans_have_no_visit_limit_and_limited_plans_still_need_a_number() throws Exception {
         MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
         mvc.perform(post("/api/admin/plans").session(admin).contentType(MediaType.APPLICATION_JSON)
@@ -430,6 +464,46 @@ class GymApiTests {
         mvc.perform(put("/api/admin/plans/" + plan).session(admin).contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\"Anytime\",\"price\":60,\"unlimited\":false,\"visitsPerMonth\":1}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.unlimited").value(false)).andExpect(jsonPath("$.visitsPerMonth").value(1));
+    }
+
+    @Autowired
+    private com.foundry.gym.config.FeatureFlags flags;
+
+    @Test
+    void unlimited_plans_can_be_switched_off_without_taking_them_from_existing_members() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Flag\",\"price\":60,\"unlimited\":true}");
+        long limited = create(admin, "/api/admin/plans", "{\"name\":\"FlagLimited\",\"price\":20,\"visitsPerMonth\":3}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        mvc.perform(get("/api/features").session(admin)).andExpect(status().isOk()).andExpect(jsonPath("$.unlimitedPlans").value(true));
+        try {
+            flags.setUnlimitedPlans(false);
+            mvc.perform(get("/api/features").session(m)).andExpect(status().isOk()).andExpect(jsonPath("$.unlimitedPlans").value(false));
+            // no new unlimited plan, and a limited plan cannot become unlimited
+            mvc.perform(post("/api/admin/plans").session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Nope\",\"price\":9,\"unlimited\":true}")).andExpect(status().isBadRequest());
+            mvc.perform(put("/api/admin/plans/" + limited).session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"FlagLimited\",\"price\":20,\"unlimited\":true}")).andExpect(status().isBadRequest());
+            // an existing unlimited plan can still be edited, and the member on it keeps it and can still book
+            mvc.perform(put("/api/admin/plans/" + plan).session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Flag2\",\"price\":61,\"unlimited\":true}")).andExpect(status().isOk());
+            long cls = create(admin, "/api/admin/classes",
+                "{\"name\":\"Daily\",\"coach\":\"\",\"startTime\":\"23:45\",\"durationMinutes\":30,\"capacity\":10,\"days\":" + EVERY_DAY + "}");
+            book(m, cls, nextOpen(LocalDate.now().plusDays(1)), 201);
+            // nobody new can be put on an unlimited plan
+            long other = json.readTree(mvc.perform(get("/api/auth/me").session(registerMember()))
+                .andReturn().getResponse().getContentAsString()).get("id").asLong();
+            mvc.perform(put("/api/admin/members/" + other + "/plan").session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"planId\":" + plan + "}")).andExpect(status().isBadRequest());
+            // switching an unlimited plan to a limited one is always fine
+            mvc.perform(put("/api/admin/plans/" + plan).session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Flag2\",\"price\":61,\"visitsPerMonth\":5}")).andExpect(status().isOk());
+        } finally {
+            flags.setUnlimitedPlans(true);
+        }
+        mvc.perform(post("/api/admin/plans").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"Yes\",\"price\":9,\"unlimited\":true}")).andExpect(status().isCreated());
     }
 
     @Test
@@ -472,6 +546,30 @@ class GymApiTests {
             .andExpect(status().isBadRequest());
         mvc.perform(get("/api/me/preferences").session(registerMember())).andExpect(jsonPath("$.marketing").value(false));
         mvc.perform(get("/api/me/preferences")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void while_emails_are_switched_off_preferences_cannot_be_turned_on_only_off() throws Exception {
+        MockHttpSession m = registerMember();
+        mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"marketing\":true,\"newPlans\":true,\"planEnding\":false,\"visitsReminder\":false}")).andExpect(status().isOk());
+        try {
+            mailSettings.apply(java.util.Map.of("gym.mail.enabled", "false")); // what the config server refresh does
+            mvc.perform(get("/api/features").session(m)).andExpect(jsonPath("$.mail").value(false));
+            mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"marketing\":true,\"newPlans\":true,\"planEnding\":true,\"visitsReminder\":false}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Emails are switched off at the moment, so they cannot be turned on. You can still turn them off."));
+            // unchanged ones are fine, and so is turning one off
+            mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"marketing\":false,\"newPlans\":true,\"planEnding\":false,\"visitsReminder\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.marketing").value(false));
+        } finally {
+            mailSettings.apply(java.util.Map.of("gym.mail.enabled", "true"));
+        }
+        mvc.perform(get("/api/features").session(m)).andExpect(jsonPath("$.mail").value(true));
+        mvc.perform(put("/api/me/preferences").session(m).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"marketing\":true,\"newPlans\":true,\"planEnding\":true,\"visitsReminder\":true}")).andExpect(status().isOk());
     }
 
     @Test
@@ -570,5 +668,31 @@ class GymApiTests {
 
         mvc.perform(put("/api/admin/booking-window").session(admin).contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"ANY\"}")).andExpect(status().isOk());
         mvc.perform(get("/api/booking-window").session(m)).andExpect(jsonPath("$.mode").value("ANY"));
+    }
+
+    @Test
+    void the_home_page_can_be_switched_off_from_the_config_server() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long id = create(admin, "/api/admin/promos", "{\"kind\":\"PROMO\",\"title\":\"Hello\",\"body\":\"Welcome\",\"active\":true,\"sortOrder\":0}");
+        try {
+            mvc.perform(get("/api/features").session(admin)).andExpect(jsonPath("$.home").value(true));
+            mvc.perform(get("/api/promos")).andExpect(status().isOk()).andExpect(jsonPath("$[?(@.id==" + id + ")]").exists());
+
+            flags.setHome(false);
+            mvc.perform(get("/api/features").session(admin)).andExpect(jsonPath("$.home").value(false));
+            // visitors see nothing, the admin side is closed
+            mvc.perform(get("/api/promos")).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+            mvc.perform(get("/api/admin/promos").session(admin)).andExpect(status().isNotFound());
+            mvc.perform(post("/api/admin/promos").session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"kind\":\"PROMO\",\"title\":\"More\",\"body\":\"x\",\"active\":true,\"sortOrder\":1}")).andExpect(status().isNotFound());
+            mvc.perform(put("/api/admin/promos/" + id).session(admin).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"kind\":\"PROMO\",\"title\":\"Changed\",\"body\":\"x\",\"active\":true,\"sortOrder\":0}")).andExpect(status().isNotFound());
+            mvc.perform(delete("/api/admin/promos/" + id).session(admin)).andExpect(status().isNotFound());
+        } finally {
+            flags.setHome(true);
+        }
+        // switched on again: everything is back and nothing was lost
+        mvc.perform(get("/api/promos")).andExpect(jsonPath("$[?(@.id==" + id + ")]").exists());
+        mvc.perform(delete("/api/admin/promos/" + id).session(admin)).andExpect(status().isNoContent());
     }
 }

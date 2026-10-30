@@ -1,0 +1,110 @@
+databaseChangeLog:
+  # Everything for the emails to members (Preferences toggles and the Marketing page).
+
+  # A new plan is announced for a few days after it was created. Plans that already exist get a date long ago, so that
+  # switching the emails on does not announce them.
+  - changeSet:
+      id: email-001-plan-created-at
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: plan
+                columnName: created_at
+      changes:
+        - addColumn:
+            tableName: plan
+            columns:
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE }
+        - update:
+            tableName: plan
+            columns:
+              - column: { name: created_at, valueDate: "2000-01-01T00:00:00" }
+        - addNotNullConstraint:
+            tableName: plan
+            columnName: created_at
+            columnDataType: TIMESTAMP WITH TIME ZONE
+
+  # The admin's "send as a marketing email" tick on a home page item, and what became of it.
+  - changeSet:
+      id: email-002-promo-marketing
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: promo
+                columnName: marketing
+      changes:
+        - addColumn:
+            tableName: promo
+            columns:
+              - column: { name: marketing, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: marketing_queued_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: marketing_recipients, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+
+  # Emails waiting to be sent (or sent). (user_id, dedupe_key) is unique: it is what stops anyone getting the same email twice.
+  - changeSet:
+      id: email-003-outbox
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: email_outbox
+      changes:
+        - createTable:
+            tableName: email_outbox
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_email_outbox } }
+              - column: { name: user_id, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: kind, type: VARCHAR(20), constraints: { nullable: false } }
+              - column: { name: dedupe_key, type: VARCHAR(60), constraints: { nullable: false } }
+              - column: { name: subject, type: VARCHAR(200), constraints: { nullable: false } }
+              - column: { name: body, type: VARCHAR(4000), constraints: { nullable: false } }
+              - column: { name: status, type: VARCHAR(10), constraints: { nullable: false } }
+              - column: { name: attempts, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: next_attempt_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: sent_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: last_error, type: VARCHAR(300) }
+        - addForeignKeyConstraint:
+            baseTableName: email_outbox
+            baseColumnNames: user_id
+            constraintName: fk_email_outbox_user
+            referencedTableName: app_user
+            referencedColumnNames: id
+            onDelete: CASCADE
+        - addUniqueConstraint:
+            tableName: email_outbox
+            columnNames: user_id, dedupe_key
+            constraintName: uk_email_outbox_key
+        - createIndex:
+            tableName: email_outbox
+            indexName: idx_email_outbox_due
+            columns:
+              - column: { name: status }
+              - column: { name: next_attempt_at }
+
+  # The marketing emails the admin writes on the Marketing page.
+  - changeSet:
+      id: email-004-marketing-campaign
+      author: foundry
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists:
+                tableName: marketing_campaign
+      changes:
+        - createTable:
+            tableName: marketing_campaign
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, primaryKeyName: pk_marketing_campaign } }
+              - column: { name: subject, type: VARCHAR(150), constraints: { nullable: false } }
+              - column: { name: body, type: VARCHAR(3000), constraints: { nullable: false } }
+              - column: { name: link_url, type: VARCHAR(500) }
+              - column: { name: status, type: VARCHAR(10), constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: sent_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: recipients, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }

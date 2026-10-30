@@ -23,20 +23,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class PromoController {
 
     private final PromoService promos;
+    private final com.foundry.gym.service.GymService gyms;
 
-    public PromoController(PromoService promos) {
+    public PromoController(PromoService promos, com.foundry.gym.service.GymService gyms) {
+        this.gyms = gyms;
         this.promos = promos;
     }
 
     /** Open to visitors who are not logged in (see SecurityConfig). */
     @GetMapping("/promos")
-    public List<PromoView> visible() {
-        return promos.visible();
+    public List<PromoView> visible(@org.springframework.security.core.annotation.AuthenticationPrincipal AuthUser me,
+                                   @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        return promos.visible(gyms.forMember(gymId, me == null ? null : me.id()));
     }
 
     @GetMapping("/admin/promos")
-    public List<PromoView> all() {
-        return promos.all();
+    public List<PromoView> all(@org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        return promos.all(gyms.forAdmin(gymId));
     }
 
     @PostMapping("/admin/promos")

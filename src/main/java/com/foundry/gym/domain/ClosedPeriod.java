@@ -18,6 +18,9 @@ public class ClosedPeriod {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "gym_id", nullable = false)
+    private Long gymId = Gym.FIRST_ID;
+
     /** WEEK or MONTH. */
     @Column(nullable = false, length = 5)
     private String kind;
@@ -31,13 +34,15 @@ public class ClosedPeriod {
     protected ClosedPeriod() {
     }
 
-    public ClosedPeriod(String kind, LocalDate startDate, LocalDate endDate) {
+    public ClosedPeriod(Long gymId, String kind, LocalDate startDate, LocalDate endDate) {
+        this.gymId = gymId;
         this.kind = kind;
         this.startDate = startDate;
         this.endDate = endDate;
     }
 
     public Long getId() { return id; }
+    public Long getGymId() { return gymId; }
     public String getKind() { return kind; }
     public LocalDate getStartDate() { return startDate; }
     public LocalDate getEndDate() { return endDate; }

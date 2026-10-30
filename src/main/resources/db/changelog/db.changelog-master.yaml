@@ -13,3 +13,9 @@ databaseChangeLog:
       file: db/changelog/changes/005-app-setting.yaml
   - include:
       file: db/changelog/changes/006-unlimited-plan.yaml
+  - include:
+      file: db/changelog/changes/007-encrypted-email.yaml
+  - include:
+      file: db/changelog/changes/008-email.yaml
+  - include:
+      file: db/changelog/changes/009-gyms.yaml
