@@ -135,7 +135,7 @@ public final class Dtos {
 
     /** mode is ANY, WEEK or MONTH. */
     /** Switches the admin can flip in the config server. */
-    public record FeaturesBody(boolean unlimitedPlans, boolean mail, boolean analytics, boolean home, boolean multiGym) {
+    public record FeaturesBody(boolean unlimitedPlans, boolean mail, boolean analytics, boolean home, boolean multiGym, boolean marketing) {
     }
 
     /** The booking rules members see: the window, the horizon, and the last day they can book (yyyy-MM-dd). */

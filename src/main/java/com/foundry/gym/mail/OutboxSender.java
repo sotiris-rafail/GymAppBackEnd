@@ -74,6 +74,9 @@ public class OutboxSender {
     }
 
     private boolean stillWanted(EmailOutbox e) {
+        if (e.getKind() == EmailKind.CLASS_CANCELLED) {
+            return true; // a notice about their own booking, not something they opted into
+        }
         MemberPreference p = preferences.findById(e.getUserId()).orElse(null);
         if (p == null) {
             return false;
@@ -83,6 +86,7 @@ public class OutboxSender {
             case NEW_PLAN -> p.isNewPlans();
             case PLAN_ENDING -> p.isPlanEnding();
             case VISITS_REMINDER -> p.isVisitsReminder();
+            case CLASS_CANCELLED -> true;
         };
     }
 }

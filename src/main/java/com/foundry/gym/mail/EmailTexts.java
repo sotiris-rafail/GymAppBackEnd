@@ -21,4 +21,12 @@ final class EmailTexts {
         return greeting(name) + (text == null ? "" : text.strip()) + (link == null || link.isBlank() ? "" : "\n\n" + link)
             + footer(props, "Marketing emails");
     }
+
+    /** Tells a member their booking was cancelled because the gym is closed that day. */
+    static String classCancelled(MailSettings.Snapshot props, String name, String className, String date, String time, String reason) {
+        String where = props.appUrl().isBlank() ? "the app" : props.appUrl();
+        return greeting(name) + props.gymName() + " is closed on " + date + (reason == null || reason.isBlank() ? "" : " (" + reason.strip() + ")")
+            + ", so your booking for " + className + " at " + time + " has been cancelled. The visit is back on your plan: open "
+            + where + " to book another class.\n\n--\nYou get this email because you had a booking on that day.";
+    }
 }

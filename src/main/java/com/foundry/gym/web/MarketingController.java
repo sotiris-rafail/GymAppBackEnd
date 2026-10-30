@@ -24,9 +24,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class MarketingController {
 
     private final MarketingService marketing;
+    private final com.foundry.gym.config.FeatureFlags flags;
 
-    public MarketingController(MarketingService marketing) {
+    public MarketingController(MarketingService marketing, com.foundry.gym.config.FeatureFlags flags) {
         this.marketing = marketing;
+        this.flags = flags;
+    }
+
+    /** Every Marketing endpoint answers 404 while marketing.enabled is false in the config server. */
+    @org.springframework.web.bind.annotation.ModelAttribute
+    void requireOn() {
+        if (!flags.marketing()) {
+            throw new com.foundry.gym.web.ApiException(HttpStatus.NOT_FOUND, "Marketing is switched off.");
+        }
     }
 
     @GetMapping("/status")

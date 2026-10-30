@@ -27,8 +27,11 @@ public class ClosedDayService {
     private final ClosedDayRepository repo;
     private final ClosedPeriodRepository periods;
     private final Clock clock;
+    private final com.foundry.gym.mail.ClosureCancellations cancellations;
 
-    public ClosedDayService(ClosedDayRepository repo, ClosedPeriodRepository periods, Clock clock) {
+    public ClosedDayService(ClosedDayRepository repo, ClosedPeriodRepository periods, Clock clock,
+                            com.foundry.gym.mail.ClosureCancellations cancellations) {
+        this.cancellations = cancellations;
         this.repo = repo;
         this.periods = periods;
         this.clock = clock;
@@ -98,10 +101,20 @@ public class ClosedDayService {
         List<ClosedPeriod> existing = periods.findByGymIdAndKindAndStartDate(gymId, kind, from);
         if (closed && existing.isEmpty()) {
             periods.save(new ClosedPeriod(gymId, kind, from, to));
+            cancellations.cancel(gymId, from, to, "");
         } else if (!closed) {
             periods.deleteAll(existing);
         }
         return openPeriods(gymId);
+    }
+
+    /** What closing these dates would cancel, for the admin's confirmation. Sundays hold no bookings. */
+    @Transactional(readOnly = true)
+    public com.foundry.gym.mail.ClosureCancellations.Impact impact(Long gymId, LocalDate from, LocalDate to) {
+        if (to.isBefore(from) || from.plusDays(366).isBefore(to)) {
+            throw ApiException.badRequest("Give a date range of at most a year.");
+        }
+        return cancellations.impact(gymId, from, to);
     }
 
     @Transactional
@@ -111,7 +124,9 @@ public class ClosedDayService {
         }
         ClosedDay c = repo.findByGymIdAndClosedOn(gymId, r.date()).orElseGet(() -> new ClosedDay(gymId, r.date(), null));
         c.setReason(r.reason() == null || r.reason().isBlank() ? null : r.reason().trim());
-        return view(repo.save(c));
+        ClosedDayView saved = view(repo.save(c));
+        cancellations.cancel(gymId, r.date(), r.date(), c.getReason());
+        return saved;
     }
 
     @Transactional

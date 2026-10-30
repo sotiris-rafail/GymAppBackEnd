@@ -51,6 +51,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     @Query("select b.user.id, max(b.sessionDate) from Booking b where b.sessionDate <= :to group by b.user.id")
     List<Object[]> lastBookingPerUser(@Param("to") LocalDate to);
 
+    /** Every booking for classes of one gym in the date range, with class and member loaded. */
+    @Query("select b from Booking b join fetch b.gymClass c join fetch b.user u "
+        + "where c.gymId = :gid and b.sessionDate between :from and :to order by b.sessionDate, c.startTime")
+    List<Booking> findForGymBetween(@Param("gid") Long gymId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from Booking b where b.gymClass.id = :classId")
     int deleteAllForClass(@Param("classId") Long classId);

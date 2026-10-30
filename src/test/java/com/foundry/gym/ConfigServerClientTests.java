@@ -202,6 +202,21 @@ class ConfigServerClientTests {
     }
 
     @Test
+    void the_marketing_switch_follows_the_config_server_while_running() {
+        body = "{\"app\":\"backend\",\"profiles\":[],\"properties\":{}}";
+        StandardEnvironment env = env();
+        run(env);
+        FeatureFlags flags = new FeatureFlags(env);
+        assertTrue(flags.marketing(), "a missing value means on");
+        body = "{\"app\":\"backend\",\"profiles\":[],\"properties\":{\"marketing.enabled\":\"false\"}}";
+        flags.refresh();
+        assertFalse(flags.marketing());
+        body = "{\"app\":\"backend\",\"profiles\":[],\"properties\":{\"marketing.enabled\":\"true\"}}";
+        flags.refresh();
+        assertTrue(flags.marketing());
+    }
+
+    @Test
     void the_analytics_settings_follow_the_config_server_while_running() {
         body = "{\"app\":\"backend\",\"profiles\":[],\"properties\":{}}";
         StandardEnvironment env = env();

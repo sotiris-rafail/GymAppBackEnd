@@ -21,6 +21,6 @@ public class FeatureController {
 
     @GetMapping("/features")
     public FeaturesBody features() {
-        return new FeaturesBody(flags.unlimitedPlans(), mail.enabled(), flags.analytics(), flags.home(), flags.multiGym());
+        return new FeaturesBody(flags.unlimitedPlans(), mail.enabled(), flags.analytics(), flags.home(), flags.multiGym(), flags.marketing());
     }
 }

@@ -6,6 +6,8 @@ databaseChangeLog:
   - changeSet:
       id: encrypted-email-001
       author: foundry
+      # the drop below was reworded after release; databases that already ran it must not fail the checksum
+      validCheckSum: ANY
       preConditions:
         - onFail: MARK_RAN
         - not:
@@ -17,9 +19,14 @@ databaseChangeLog:
             tableName: app_user
             columns:
               - column: { name: email_hash, type: VARCHAR(64) }
+        # IF EXISTS: a database first built by Hibernate has no constraint with this name (it was given a generated one)
+        - sql:
+            sql: ALTER TABLE app_user DROP CONSTRAINT IF EXISTS uk_app_user_email
+            dbms: h2,postgresql
         - dropUniqueConstraint:
             tableName: app_user
             constraintName: uk_app_user_email
+            dbms: '!h2,!postgresql'
         - modifyDataType:
             tableName: app_user
             columnName: email

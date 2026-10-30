@@ -41,6 +41,7 @@ class GymApiTests {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @Autowired com.foundry.gym.mail.MailSettings mailSettings;
 
     private MockHttpSession login(String email, String password, String role) throws Exception {
@@ -413,6 +414,36 @@ class GymApiTests {
 
         mvc.perform(delete("/api/admin/closed-days/" + day).session(admin)).andExpect(status().isNoContent());
         book(m, cls, day, 201);
+    }
+
+    @Test
+    void closing_a_day_cancels_the_bookings_on_it_gives_the_visit_back_and_tells_the_member() throws Exception {
+        MockHttpSession admin = login("boss@test.gym", "secret-admin", "ADMIN");
+        long plan = create(admin, "/api/admin/plans", "{\"name\":\"Shut\",\"price\":5,\"visitsPerMonth\":20}");
+        long cls = create(admin, "/api/admin/classes", "{\"name\":\"Late\",\"coach\":\"X\",\"startTime\":\"23:30\",\"durationMinutes\":30,\"capacity\":5,\"days\":" + EVERY_DAY + "}");
+        MockHttpSession m = registerMember();
+        choosePlan(m, plan);
+        LocalDate shut = nextOpen(LocalDate.now().plusDays(2));
+        LocalDate other = nextOpen(shut.plusDays(1));
+        book(m, cls, shut, 201);
+        book(m, cls, other, 201);
+
+        mvc.perform(get("/api/admin/closed-days/impact").session(admin).param("from", shut.toString()).param("to", shut.toString()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.bookings").value(1)).andExpect(jsonPath("$.members").value(1));
+        mvc.perform(get("/api/admin/closed-days/impact").session(m).param("from", shut.toString()).param("to", shut.toString()))
+            .andExpect(status().isForbidden());
+        int before = jdbc.queryForObject("select count(*) from email_outbox where kind = 'CLASS_CANCELLED'", Integer.class);
+
+        mvc.perform(post("/api/admin/closed-days").session(admin).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"date\":\"" + shut + "\",\"reason\":\"Pipe burst\"}")).andExpect(status().isCreated());
+
+        String mine = mvc.perform(get("/api/me/bookings").session(m)).andReturn().getResponse().getContentAsString();
+        org.junit.jupiter.api.Assertions.assertFalse(mine.contains("\"" + shut + "\""), "the booking on the closed day is gone");
+        org.junit.jupiter.api.Assertions.assertTrue(mine.contains("\"" + other + "\""), "other days are untouched");
+        org.junit.jupiter.api.Assertions.assertEquals(before + 1,
+            jdbc.queryForObject("select count(*) from email_outbox where kind = 'CLASS_CANCELLED'", Integer.class));
+        String body = jdbc.queryForObject("select body from email_outbox where kind = 'CLASS_CANCELLED' order by id desc limit 1", String.class);
+        org.junit.jupiter.api.Assertions.assertTrue(body.contains("Pipe burst") && body.contains("Late"), body);
     }
 
     @Test

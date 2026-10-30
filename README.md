@@ -40,7 +40,7 @@ The API listens on http://localhost:8080. Then start the UI from the `foundry-gy
 Start the config server first (see below). If it is not running the backend still starts, with the settings in
 `application.yml`, and logs a warning.
 
-Data is stored in `data/foundry.mv.db.old` (an H2 file database), so it survives restarts. Delete the
+Data is stored in `./data/foundry.mv.db` (an H2 file database), so it survives restarts. Delete the
 `data` folder to start over.
 
 On the first start with an empty database the app creates the admin account and some example plans,
@@ -247,7 +247,7 @@ other dates: `POST /api/admin/closed-days` with `{"date":"2026-12-25","reason":"
 dates. `PUT /api/admin/closed-periods/WEEK` or `/MONTH` with `{"closed":true}` closes bookings for the whole current week (Monday
 to Sunday) or calendar month, `{"closed":false}` opens it again, and `GET /api/admin/closed-periods` lists the closed
 weeks/months that have not ended (table `closed_period`). `GET /api/closed-days` lists every closed date, with `period`
-set to `WEEK` or `MONTH` for dates closed that way. Existing bookings on a date that is closed later are kept. Table `closed_day`, changesets `closed-day-001` and `closed-day-002-rename-day`. The date column is `closed_on` because `day` is a reserved word in H2.
+set to `WEEK` or `MONTH` for dates closed that way. Closing a date, week or month cancels the bookings already made for those days that have not started (the visit is given back, like a member cancelling) and, while `gym.mail.enabled` is true, emails each member a `CLASS_CANCELLED` notice (sent whatever their Preferences). `GET /api/admin/closed-days/impact?from=&to=` returns `{bookings, members}` for the admin's confirmation without changing anything. Table `closed_day`, changesets `closed-day-001` and `closed-day-002-rename-day`. The date column is `closed_on` because `day` is a reserved word in H2.
 
 ## Booking window
 
@@ -377,6 +377,7 @@ Tests: `AnalyticsTests` (run `mvn test`).
 
 ### Analytics settings from the config server (live)
 
+`marketing.enabled` (default true; false = the Marketing menu entry is hidden and every `/api/admin/marketing` endpoint answers 404; emails already queued are still sent),
 `analytics.enabled` (default true; false = the menu entry is hidden and `GET /api/admin/analytics` answers 404),
 `analytics.follow-up-days` (default 30) and `analytics.low-fill-percent` (default 65) are read with the other live
 switches (`FeatureFlags`): at start-up and then every `config.client.refresh-seconds` (5 minutes). Bad numbers fall back

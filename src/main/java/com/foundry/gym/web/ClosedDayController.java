@@ -52,6 +52,15 @@ public class ClosedDayController {
         return days.setPeriod(gyms.forAdmin(gymId).getId(), kind.toUpperCase(java.util.Locale.ROOT), body.closed());
     }
 
+    /** How many bookings (and members) closing these dates would cancel; nothing is changed. */
+    @GetMapping("/admin/closed-days/impact")
+    public com.foundry.gym.mail.ClosureCancellations.Impact impact(
+            @org.springframework.web.bind.annotation.RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @org.springframework.web.bind.annotation.RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Long gymId) {
+        return days.impact(gyms.forAdmin(gymId).getId(), from, to);
+    }
+
     @PostMapping("/admin/closed-days")
     @ResponseStatus(HttpStatus.CREATED)
     public ClosedDayView add(@Valid @RequestBody ClosedDayRequest body,

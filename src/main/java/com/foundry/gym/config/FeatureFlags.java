@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Switches the admin controls from the config server while the backend is running.
  *
- * <p>Six switches: {@code plans.unlimited-enabled}, {@code home.enabled}, {@code gyms.multi-enabled}, {@code analytics.enabled}, {@code analytics.follow-up-days} and
+ * <p>Seven switches: {@code plans.unlimited-enabled}, {@code home.enabled}, {@code gyms.multi-enabled}, {@code analytics.enabled}, {@code marketing.enabled}, {@code analytics.follow-up-days} and
  * {@code analytics.low-fill-percent} (app {@code backend} in the config server). Each is read when the
  * backend starts and then again every {@code config.client.refresh-seconds} (default 300, i.e. every 5 minutes), so changing
  * it in the config server console takes effect within 5 minutes, without restarting the backend. A missing value means "on".
@@ -35,6 +35,7 @@ public class FeatureFlags {
     public static final String HOME_KEY = "home.enabled";
     public static final String MULTI_GYM_KEY = "gyms.multi-enabled";
     public static final String ANALYTICS_KEY = "analytics.enabled";
+    public static final String MARKETING_KEY = "marketing.enabled";
     public static final String FOLLOW_UP_KEY = "analytics.follow-up-days";
     public static final String LOW_FILL_KEY = "analytics.low-fill-percent";
 
@@ -47,6 +48,7 @@ public class FeatureFlags {
     private volatile boolean home;
     private volatile boolean multiGym;
     private volatile boolean analytics;
+    private volatile boolean marketing;
     private volatile int followUpDays;
     private volatile int lowFillPercent;
     private volatile boolean reachable = true;
@@ -58,10 +60,11 @@ public class FeatureFlags {
         this.home = parse(env.getProperty(HOME_KEY));
         this.multiGym = parseOn(env.getProperty(MULTI_GYM_KEY));
         this.analytics = parse(env.getProperty(ANALYTICS_KEY));
+        this.marketing = parse(env.getProperty(MARKETING_KEY));
         this.followUpDays = number(env.getProperty(FOLLOW_UP_KEY), 30, 1, 365);
         this.lowFillPercent = number(env.getProperty(LOW_FILL_KEY), 65, 1, 100);
         this.refreshSeconds = Math.max(2, Long.parseLong(env.getProperty("config.client.refresh-seconds", "300")));
-        this.live = Boolean.parseBoolean(env.getProperty("config.client.enabled", "true")) && !(pinned(UNLIMITED_KEY) && pinned(HOME_KEY) && pinned(MULTI_GYM_KEY) && pinned(ANALYTICS_KEY) && pinned(FOLLOW_UP_KEY) && pinned(LOW_FILL_KEY));
+        this.live = Boolean.parseBoolean(env.getProperty("config.client.enabled", "true")) && !(pinned(UNLIMITED_KEY) && pinned(HOME_KEY) && pinned(MULTI_GYM_KEY) && pinned(ANALYTICS_KEY) && pinned(MARKETING_KEY) && pinned(FOLLOW_UP_KEY) && pinned(LOW_FILL_KEY));
     }
 
     /** Whether plans may be made (or assigned) as unlimited. Plans that are already unlimited keep working either way. */
@@ -90,6 +93,15 @@ public class FeatureFlags {
     /** Whether the Analytics page is available (the page and its endpoint). Missing = on. */
     public boolean analytics() {
         return analytics;
+    }
+
+    /** Whether the Marketing page is available (the page and its endpoints). Missing = on. Emails already queued are still sent. */
+    public boolean marketing() {
+        return marketing;
+    }
+
+    public void setMarketing(boolean on) {
+        this.marketing = on;
     }
 
     /** Members with a plan and no booking for this many days are listed as "worth a message". Default 30. */
@@ -179,6 +191,13 @@ public class FeatureFlags {
                     log.info("Analytics is now {} (from the config server).", next ? "on" : "off");
                 }
                 analytics = next;
+            }
+            if (!pinned(MARKETING_KEY)) {
+                boolean next = parse(text(props, MARKETING_KEY));
+                if (next != marketing) {
+                    log.info("Marketing is now {} (from the config server).", next ? "on" : "off");
+                }
+                marketing = next;
             }
             if (!pinned(FOLLOW_UP_KEY)) {
                 followUpDays = number(text(props, FOLLOW_UP_KEY), 30, 1, 365);
