@@ -134,7 +134,7 @@ public class ConfigServerEnvironmentPostProcessor implements EnvironmentPostProc
         }
         JsonNode properties = mapper.readTree(response.body()).path("properties");
         Map<String, Object> out = new LinkedHashMap<>();
-        properties.fields().forEachRemaining(e -> out.put(e.getKey(), e.getValue().asText()));
+        properties.properties().forEach(e -> out.put(e.getKey(), e.getValue().asText()));
         return out;
     }
 
