@@ -34,7 +34,7 @@ public class SmtpEmailGateway implements EmailGateway {
     }
 
     /** The mail sender for the given settings; made again only when they are not the ones it was made for. */
-    synchronized JavaMailSender senderFor(MailSettings.Snapshot s) {
+    synchronized public JavaMailSender senderFor(MailSettings.Snapshot s) {
         if (sender == null || !s.equals(builtFor)) {
             JavaMailSenderImpl made = new JavaMailSenderImpl();
             made.setHost(s.host());
